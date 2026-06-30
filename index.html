@@ -23,6 +23,9 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/favicon.png">
 
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -322,6 +325,22 @@
     padding: 3rem 0;
   }
 
+  .busy-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(250, 243, 227, 0.85);
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    color: var(--ink-muted);
+    z-index: 2;
+    border-radius: 2px;
+  }
+
+  .busy-overlay[hidden] { display: none; }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -385,6 +404,7 @@
     <div id="content" aria-live="polite" aria-atomic="true" tabindex="-1">
       <div class="state-msg">Desplegando velas...</div>
     </div>
+    <div class="busy-overlay" id="busy" role="status" aria-live="polite" hidden>Buscando en el archivo…</div>
   </div>
 
   <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
@@ -479,7 +499,7 @@
   }
 
   // Trae la siguiente página de crónicas más antiguas y las antepone.
-  // Devuelve cuántas añadió.
+  // Devuelve cuántas añadió (0 también si falla, para degradar con elegancia).
   async function loadOlder() {
     if (loadingOlder || chronicles.length >= total) return 0;
     loadingOlder = true;
@@ -495,9 +515,18 @@
         idx += older.length;   // mantenemos apuntando a la misma crónica
       }
       return older.length;
+    } catch (err) {
+      console.error('No se pudieron cargar crónicas más antiguas:', err);
+      return 0;   // el llamador lo trata como "no hay más por ahora"
     } finally {
       loadingOlder = false;
     }
+  }
+
+  // Muestra/oculta el velo "Buscando en el archivo…" en saltos multi-página.
+  function setBusy(on) {
+    const el = document.getElementById('busy');
+    if (el) el.hidden = !on;
   }
 
   function todayISO() {
@@ -631,20 +660,31 @@
     let g;
     do { g = Math.floor(Math.random() * total); } while (g === current);
     // Cargamos páginas más antiguas hasta que la elegida esté disponible.
-    let guard = 0;
-    while ((total - chronicles.length) > g && chronicles.length < total && guard++ < 500) {
-      await loadOlder();
+    setBusy(true);
+    try {
+      let guard = 0;
+      while ((total - chronicles.length) > g && chronicles.length < total && guard++ < 500) {
+        if (await loadOlder() === 0) break;   // fallo o fin: no insistimos
+      }
+    } finally {
+      setBusy(false);
     }
-    idx = g - (total - chronicles.length);
+    // Si un fallo impidió llegar, acotamos a lo que sí está cargado.
+    idx = Math.max(0, Math.min(chronicles.length - 1, g - (total - chronicles.length)));
     render();
     focusContent();
   }
 
   // Va a la crónica más antigua del archivo (cargando lo que falte).
   async function goOldest() {
-    let guard = 0;
-    while (chronicles.length < total && guard++ < 500) {
-      await loadOlder();
+    setBusy(true);
+    try {
+      let guard = 0;
+      while (chronicles.length < total && guard++ < 500) {
+        if (await loadOlder() === 0) break;   // fallo o fin
+      }
+    } finally {
+      setBusy(false);
     }
     idx = 0;
     render();
@@ -708,6 +748,14 @@
   });
 
   loadChronicles();
+
+  // PWA: registramos el service worker para instalación y uso offline.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.warn('Service worker no registrado:', err));
+    });
+  }
 </script>
 </body>
 </html>

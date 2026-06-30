@@ -1,0 +1,26 @@
+{
+  "name": "Hic Sunt Dracones",
+  "short_name": "Dracones",
+  "description": "Una efeméride histórica cada día. Donde los mapas terminan, comienza la historia.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2a1f0e",
+  "theme_color": "#2a1f0e",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/og.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
