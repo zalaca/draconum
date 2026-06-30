@@ -822,7 +822,10 @@
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
     if (!exploreMap) {
-      exploreMap = L.map('exploreMap', { worldCopyJump: true, fadeAnimation: false })
+      // Sin worldCopyJump: las rutas usan longitudes extendidas (fuera de ±180,
+      // p. ej. -383) para cruzar el Pacífico/antimeridiano en línea continua;
+      // saltar entre copias del mundo las rompía al hacer pan/zoom.
+      exploreMap = L.map('exploreMap', { fadeAnimation: false })
         .setView([20, 0], 2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
