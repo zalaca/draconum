@@ -401,9 +401,10 @@
 
   .minimap[hidden] { display: none; }
 
-  /* Aspecto pergamino: solo sobre las teselas, no sobre pines/controles */
-  .minimap .leaflet-tile-pane,
-  #exploreMap .leaflet-tile-pane {
+  /* Aspecto pergamino: filtro por tesela (no sobre el panel, que provoca
+     parpadeos/desapariciones al hacer pan/zoom). No afecta a pines/controles. */
+  .minimap .leaflet-tile,
+  #exploreMap .leaflet-tile {
     filter: sepia(0.6) saturate(0.85) contrast(0.95) brightness(1.02);
   }
 
@@ -468,6 +469,36 @@
     font-size: 0.85rem;
     cursor: pointer;
   }
+
+  /* Pin estilo sello de lacre, a juego con el tema */
+  .map-pin {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--red-wax);
+    border: 2px solid var(--card-bg);
+    box-shadow: 0 0 0 1px var(--gold), 0 2px 5px rgba(0, 0, 0, 0.55);
+  }
+
+  .map-pin:hover { transform: scale(1.2); }
+
+  /* Popups en pergamino */
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-tip {
+    background: var(--card-bg);
+    color: var(--ink);
+    border: 1px solid var(--border-col);
+    border-radius: 2px;
+  }
+
+  .leaflet-popup-content {
+    font-family: 'EB Garamond', serif;
+    color: var(--ink-faded);
+  }
+
+  .leaflet-popup-content strong { font-family: 'Cinzel', serif; color: var(--ink); }
+
+  .leaflet-container a.leaflet-popup-close-button { color: var(--ink-muted); }
 
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
@@ -807,6 +838,26 @@
   // ---- Mapa ----
   let miniMap, miniMarker;
 
+  // Recalcula el tamaño del mapa de forma fiable tras mostrar/redimensionar
+  // su contenedor (dos frames para que el layout ya esté aplicado).
+  function refreshMap(map) {
+    requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize(false)));
+  }
+
+  // Pin estilo sello de lacre (memoizado; se crea cuando Leaflet ya cargó).
+  let placeIcon;
+  function placePin() {
+    if (!placeIcon) {
+      placeIcon = L.divIcon({
+        className: 'map-pin',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+        popupAnchor: [0, -10]
+      });
+    }
+    return placeIcon;
+  }
+
   // Muestra/actualiza el mini-mapa con el lugar de la crónica actual.
   function updateMiniMap(c) {
     const box = document.getElementById('minimap');
@@ -815,17 +866,21 @@
     if (!hasCoords) { box.hidden = true; return; }
     box.hidden = false;
     if (!miniMap) {
-      miniMap = L.map(box, { scrollWheelZoom: false, attributionControl: true });
+      miniMap = L.map(box, {
+        scrollWheelZoom: false,
+        attributionControl: true,
+        fadeAnimation: false   // evita parpadeo/desaparición de teselas
+      });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(miniMap);
     }
     miniMap.setView([c.lat, c.lng], 5);
     if (miniMarker) miniMarker.setLatLng([c.lat, c.lng]);
-    else miniMarker = L.marker([c.lat, c.lng]).addTo(miniMap);
+    else miniMarker = L.marker([c.lat, c.lng], { icon: placePin() }).addTo(miniMap);
     if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
     // El contenedor estaba oculto: recalculamos el tamaño del mapa.
-    setTimeout(() => miniMap.invalidateSize(), 0);
+    refreshMap(miniMap);
   }
 
   let exploreMap, mapPointsLoaded = false;
@@ -836,7 +891,8 @@
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
     if (!exploreMap) {
-      exploreMap = L.map('exploreMap', { worldCopyJump: true }).setView([20, 0], 2);
+      exploreMap = L.map('exploreMap', { worldCopyJump: true, fadeAnimation: false })
+        .setView([20, 0], 2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(exploreMap);
@@ -846,7 +902,7 @@
         if (btn) btn.onclick = () => { closeMap(); goToDate(btn.dataset.date); };
       });
     }
-    setTimeout(() => exploreMap.invalidateSize(), 0);
+    refreshMap(exploreMap);
     if (!mapPointsLoaded) await loadMapPoints();
   }
 
@@ -867,7 +923,7 @@
       const points = await res.json();
       points.forEach((p) => {
         if (p.lat == null || p.lng == null) return;
-        L.marker([p.lat, p.lng]).addTo(exploreMap).bindPopup(
+        L.marker([p.lat, p.lng], { icon: placePin() }).addTo(exploreMap).bindPopup(
           `<strong>${escapeHtml(p.title)}</strong><br>` +
           `<button class="map-popup-btn" data-date="${escapeHtml(p.event_date)}">Leer</button>`
         );
