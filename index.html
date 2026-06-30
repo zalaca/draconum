@@ -26,6 +26,12 @@
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
 
+<!-- Mapa (Leaflet + OpenStreetMap) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -385,6 +391,84 @@
     color: var(--gold);
   }
 
+  /* ---- Mapa ---- */
+  .minimap {
+    height: 200px;
+    margin-top: 1.25rem;
+    border: 1px solid var(--border-col);
+    border-radius: 2px;
+  }
+
+  .minimap[hidden] { display: none; }
+
+  /* Aspecto pergamino: solo sobre las teselas, no sobre pines/controles */
+  .minimap .leaflet-tile-pane,
+  #exploreMap .leaflet-tile-pane {
+    filter: sepia(0.6) saturate(0.85) contrast(0.95) brightness(1.02);
+  }
+
+  .map-launch {
+    text-align: center;
+    margin-top: 1rem;
+  }
+
+  .map-btn {
+    background: none;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 16px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .map-btn:hover { background: var(--gold); color: var(--card-bg); }
+
+  .map-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .map-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    background: #2a1f0e;
+  }
+
+  .map-modal[hidden] { display: none; }
+
+  .map-modal-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-col);
+    color: var(--parchment);
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .explore-map { flex: 1; }
+
+  .map-popup-btn {
+    margin-top: 6px;
+    background: var(--red-wax);
+    color: var(--parchment);
+    border: none;
+    border-radius: 2px;
+    padding: 4px 12px;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -448,7 +532,12 @@
     <div id="content" aria-live="polite" aria-atomic="true" tabindex="-1">
       <div class="state-msg">Desplegando velas...</div>
     </div>
+    <div id="minimap" class="minimap" aria-label="Mapa del lugar del suceso" hidden></div>
     <div class="busy-overlay" id="busy" role="status" aria-live="polite" hidden>Buscando en el archivo…</div>
+  </div>
+
+  <div class="map-launch">
+    <button class="map-btn" onclick="openMap()">✦ Explorar el mapa</button>
   </div>
 
   <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
@@ -465,6 +554,14 @@
   </div>
 </div>
 
+<div class="map-modal" id="mapModal" role="dialog" aria-label="Mapa de efemérides" hidden>
+  <div class="map-modal-bar">
+    <span>✦ Explorar el archivo</span>
+    <button class="nav-btn" onclick="closeMap()" aria-label="Cerrar mapa">Cerrar ✕</button>
+  </div>
+  <div id="exploreMap" class="explore-map"></div>
+</div>
+
 <script>
   // ---- CONFIGURACIÓN DE SUPABASE ----
   const SUPABASE_URL = "https://cbmzxibsbftrdrbedloj.supabase.co";
@@ -472,7 +569,7 @@
   // ------------------------------------
 
   const PAGE_SIZE = 60;                                  // crónicas por página
-  const COLS = "event_date,title,body,source,category";  // solo lo que se usa
+  const COLS = "event_date,title,body,source,category,lat,lng,place_name";  // solo lo que se usa
   const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
 
   let chronicles = [];   // cargadas, en orden ascendente y contiguas hasta hoy
@@ -702,6 +799,83 @@
     // El selector de fecha refleja la crónica visible
     const dp = document.getElementById('datepick');
     if (dp) dp.value = c.event_date;
+
+    // Mini-mapa del lugar del suceso (si la crónica tiene coordenadas)
+    updateMiniMap(c);
+  }
+
+  // ---- Mapa ----
+  let miniMap, miniMarker;
+
+  // Muestra/actualiza el mini-mapa con el lugar de la crónica actual.
+  function updateMiniMap(c) {
+    const box = document.getElementById('minimap');
+    if (!box) return;
+    const hasCoords = window.L && c.lat != null && c.lng != null;
+    if (!hasCoords) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!miniMap) {
+      miniMap = L.map(box, { scrollWheelZoom: false, attributionControl: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18, attribution: '&copy; OpenStreetMap'
+      }).addTo(miniMap);
+    }
+    miniMap.setView([c.lat, c.lng], 5);
+    if (miniMarker) miniMarker.setLatLng([c.lat, c.lng]);
+    else miniMarker = L.marker([c.lat, c.lng]).addTo(miniMap);
+    if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
+    // El contenedor estaba oculto: recalculamos el tamaño del mapa.
+    setTimeout(() => miniMap.invalidateSize(), 0);
+  }
+
+  let exploreMap, mapPointsLoaded = false;
+
+  async function openMap() {
+    if (!window.L) return;   // Leaflet no cargó (¿offline?)
+    const modal = document.getElementById('mapModal');
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (!exploreMap) {
+      exploreMap = L.map('exploreMap', { worldCopyJump: true }).setView([20, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18, attribution: '&copy; OpenStreetMap'
+      }).addTo(exploreMap);
+      // Al pulsar "Leer" en un pin, abrimos esa efeméride.
+      exploreMap.on('popupopen', (e) => {
+        const btn = e.popup.getElement().querySelector('.map-popup-btn');
+        if (btn) btn.onclick = () => { closeMap(); goToDate(btn.dataset.date); };
+      });
+    }
+    setTimeout(() => exploreMap.invalidateSize(), 0);
+    if (!mapPointsLoaded) await loadMapPoints();
+  }
+
+  function closeMap() {
+    document.getElementById('mapModal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  // Trae todas las efemérides con coordenadas y las pinta como pines.
+  async function loadMapPoints() {
+    mapPointsLoaded = true;
+    try {
+      const today = todayISO();
+      const res = await apiFetch(
+        `select=event_date,title,lat,lng&active=eq.true&event_date=lte.${today}&lat=not.is.null&limit=5000`,
+        false
+      );
+      const points = await res.json();
+      points.forEach((p) => {
+        if (p.lat == null || p.lng == null) return;
+        L.marker([p.lat, p.lng]).addTo(exploreMap).bindPopup(
+          `<strong>${escapeHtml(p.title)}</strong><br>` +
+          `<button class="map-popup-btn" data-date="${escapeHtml(p.event_date)}">Leer</button>`
+        );
+      });
+    } catch (err) {
+      mapPointsLoaded = false;   // permite reintentar al reabrir
+      console.error('No se pudo cargar el mapa:', err);
+    }
   }
 
   // Muestra solo una ventana de puntos alrededor del actual + contador,
@@ -867,6 +1041,11 @@
 
   // Navegación con teclado: flechas, e inicio/fin del archivo
   document.addEventListener('keydown', (e) => {
+    // Con el mapa abierto, solo escuchamos Escape para cerrarlo.
+    if (!document.getElementById('mapModal').hidden) {
+      if (e.key === 'Escape') closeMap();
+      return;
+    }
     if (!chronicles.length) return;
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
@@ -898,6 +1077,11 @@
   });
 
   loadChronicles();
+
+  // Leaflet carga con defer: cuando esté listo, pintamos el mini-mapa actual.
+  window.addEventListener('load', () => {
+    if (chronicles.length) updateMiniMap(chronicles[idx]);
+  });
 
   // PWA: registramos el service worker para instalación y uso offline.
   if ('serviceWorker' in navigator) {
