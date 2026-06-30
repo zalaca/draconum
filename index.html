@@ -1117,7 +1117,15 @@
   // Navegación con gestos (swipe) en móvil
   let touchX = null;
   const cardEl = document.getElementById('card');
-  cardEl.addEventListener('touchstart', (e) => { touchX = e.changedTouches[0].clientX; }, { passive: true });
+  cardEl.addEventListener('touchstart', (e) => {
+    // Ignoramos gestos sobre el mini-mapa (pan/zoom) y los multitáctiles (pinch),
+    // para no confundirlos con un swipe de navegación.
+    if (e.touches.length > 1 || (e.target.closest && e.target.closest('.minimap'))) {
+      touchX = null;
+      return;
+    }
+    touchX = e.changedTouches[0].clientX;
+  }, { passive: true });
   cardEl.addEventListener('touchend', (e) => {
     if (touchX === null) return;
     const dx = e.changedTouches[0].clientX - touchX;
