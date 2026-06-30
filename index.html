@@ -620,7 +620,7 @@
   let loadingOlder = false;
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
-  async function apiFetch(query, withCount) {
+  async function apiFetch(query, withCount, table = 'chronicles') {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
     try {
@@ -629,7 +629,7 @@
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
       };
       if (withCount) headers["Prefer"] = "count=exact";
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/chronicles?${query}`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
         headers, signal: ctrl.signal
       });
       if (!res.ok) throw new Error("Error de red: " + res.status);
@@ -951,8 +951,8 @@
       // 1) Rutas (color y nombre) y sus puntos (ordenados por seq). La efeméride
       //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
       const [routes, rpts] = await Promise.all([
-        apiFetch('select=id,name,color', false).then(r => r.json()),
-        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title)&order=route_id.asc,seq.asc', false).then(r => r.json())
+        apiFetch('select=id,name,color', false, 'routes').then(r => r.json()),
+        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title)&order=route_id.asc,seq.asc', false, 'route_points').then(r => r.json())
       ]);
       const routeById = {};
       routes.forEach(r => { routeById[r.id] = r; });
