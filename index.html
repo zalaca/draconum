@@ -13,12 +13,15 @@
 <meta property="og:description" content="Donde los mapas terminan, comienza la historia · Un dato de historia cada día.">
 <meta property="og:url" content="https://draconum.app">
 <meta property="og:locale" content="es_ES">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Hic Sunt Dracones">
 <meta name="twitter:description" content="Donde los mapas terminan, comienza la historia · Un dato de historia cada día.">
+<meta property="og:image" content="https://draconum.app/og.png">
+<meta name="twitter:image" content="https://draconum.app/og.png">
 
-<!-- Favicon: brújula en SVG, sin pesos externos -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%232a1f0e'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%239a7230'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+<!-- Favicon -->
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
 
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <style>
@@ -397,45 +400,103 @@
   const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
   // ------------------------------------
 
-  let chronicles = [];
+  const PAGE_SIZE = 60;                                  // crónicas por página
+  const COLS = "event_date,title,body,source,category";  // solo lo que se usa
+  const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
+
+  let chronicles = [];   // cargadas, en orden ascendente y contiguas hasta hoy
   let idx = 0;
+  let total = 0;         // total real de crónicas hasta hoy (no solo las cargadas)
+  let loadingOlder = false;
+
+  // fetch a Supabase con timeout (evita que la página se quede colgada)
+  async function apiFetch(query, withCount) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+    try {
+      const headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+      };
+      if (withCount) headers["Prefer"] = "count=exact";
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/chronicles?${query}`, {
+        headers, signal: ctrl.signal
+      });
+      if (!res.ok) throw new Error("Error de red: " + res.status);
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function loadChronicles() {
     document.getElementById('content').innerHTML =
       '<div class="state-msg">Desplegando velas...</div>';
     try {
       const today = todayISO();
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/chronicles?select=*&active=eq.true&event_date=lte.${today}&order=event_date.asc`,
-        {
-          headers: {
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
-          }
-        }
+      // Solo la página más reciente, no todo el archivo.
+      const res = await apiFetch(
+        `select=${COLS}&active=eq.true&event_date=lte.${today}&order=event_date.desc&limit=${PAGE_SIZE}`,
+        true
       );
 
-      if (!res.ok) throw new Error("Error de red: " + res.status);
+      // Total real desde la cabecera content-range: "0-59/342"
+      const range = res.headers.get('content-range') || '';
+      const parsedTotal = parseInt(range.split('/')[1], 10);
 
-      chronicles = await res.json();
-
-      if (!chronicles.length) {
+      const page = await res.json();
+      if (!page.length) {
         document.getElementById('content').innerHTML =
           '<div class="state-msg">No hay crónicas disponibles todavía.</div>';
         return;
       }
 
-      // Si la URL apunta a una fecha concreta (#YYYY-MM-DD) la abrimos;
-      // si no, arrancamos en la más reciente (la de hoy, si existe).
+      chronicles = page.reverse();   // a orden ascendente
+      total = Number.isFinite(parsedTotal) ? parsedTotal : chronicles.length;
+
+      // Deep-link: si la URL apunta a una fecha aún no cargada, seguimos
+      // trayendo páginas más antiguas hasta encontrarla (o agotar el archivo).
       const fromHash = location.hash.slice(1);
+      if (fromHash) {
+        let guard = 0;
+        while (chronicles.findIndex(c => c.event_date === fromHash) < 0
+               && chronicles.length < total && guard++ < 500) {
+          await loadOlder();
+        }
+      }
       const hashIdx = fromHash ? chronicles.findIndex(c => c.event_date === fromHash) : -1;
       idx = hashIdx >= 0 ? hashIdx : chronicles.length - 1;
       render();
     } catch (err) {
+      const msg = err && err.name === 'AbortError'
+        ? 'La conexión tardó demasiado.'
+        : 'No se pudo contactar con el archivo. Revisa la conexión.';
       document.getElementById('content').innerHTML =
-        '<div class="state-msg">No se pudo contactar con el archivo. Revisa la conexión.' +
+        `<div class="state-msg">${msg}` +
         '<br><button class="nav-btn" style="margin-top:1rem" onclick="loadChronicles()">Reintentar</button></div>';
       console.error(err);
+    }
+  }
+
+  // Trae la siguiente página de crónicas más antiguas y las antepone.
+  // Devuelve cuántas añadió.
+  async function loadOlder() {
+    if (loadingOlder || chronicles.length >= total) return 0;
+    loadingOlder = true;
+    try {
+      const oldest = chronicles[0].event_date;
+      const res = await apiFetch(
+        `select=${COLS}&active=eq.true&event_date=lt.${oldest}&order=event_date.desc&limit=${PAGE_SIZE}`,
+        false
+      );
+      const older = (await res.json()).reverse();
+      if (older.length) {
+        chronicles = older.concat(chronicles);
+        idx += older.length;   // mantenemos apuntando a la misma crónica
+      }
+      return older.length;
+    } finally {
+      loadingOlder = false;
     }
   }
 
@@ -496,7 +557,7 @@
         <div class="nav-row">
           <button class="nav-btn share-btn" onclick="share()" aria-label="Compartir esta efeméride">Compartir</button>
           <button class="nav-btn" onclick="goRandom()" aria-label="Ir a una efeméride al azar">Aleatoria</button>
-          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled' : ''} aria-label="Efeméride anterior">&larr; Anterior</button>
+          <button class="nav-btn" onclick="prev()" ${idx === 0 && chronicles.length >= total ? 'disabled' : ''} aria-label="Efeméride anterior">&larr; Anterior</button>
           <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled' : ''} aria-label="Efeméride siguiente">Siguiente &rarr;</button>
         </div>
       </div>
@@ -509,19 +570,21 @@
   // Muestra solo una ventana de puntos alrededor del actual + contador,
   // para que la barra no se rompa con cientos de crónicas.
   function renderDots() {
-    const total = chronicles.length;
+    const loaded = chronicles.length;
+    const offset = total - loaded;        // crónicas más antiguas aún sin cargar
     const WINDOW = 15;
     let start = Math.max(0, idx - Math.floor(WINDOW / 2));
-    let end = Math.min(total, start + WINDOW);
+    let end = Math.min(loaded, start + WINDOW);
     start = Math.max(0, end - WINDOW);
 
     let dots = '';
     for (let i = start; i < end; i++) {
       const cur = i === idx;
-      dots += `<button class="progress-dot${cur ? ' active' : ''}" onclick="goTo(${i})"${cur ? ' aria-current="true"' : ''} aria-label="Crónica ${i + 1} de ${total}"></button>`;
+      const globalNum = offset + i + 1;
+      dots += `<button class="progress-dot${cur ? ' active' : ''}" onclick="goTo(${i})"${cur ? ' aria-current="true"' : ''} aria-label="Crónica ${globalNum} de ${total}"></button>`;
     }
     document.getElementById('dots').innerHTML =
-      `<div class="dots-track">${dots}</div><div class="dots-counter">${idx + 1} / ${total}</div>`;
+      `<div class="dots-track">${dots}</div><div class="dots-counter">${offset + idx + 1} / ${total}</div>`;
   }
 
   function updateHash() {
@@ -539,8 +602,13 @@
     if (idx < chronicles.length - 1) { idx++; render(); focusContent(); }
   }
 
-  function prev() {
-    if (idx > 0) { idx--; render(); focusContent(); }
+  async function prev() {
+    if (idx > 0) { idx--; render(); focusContent(); return; }
+    // Estamos en la más antigua cargada: traemos la página anterior si la hay.
+    if (chronicles.length < total) {
+      const added = await loadOlder();
+      if (added > 0) { idx = added - 1; render(); focusContent(); }
+    }
   }
 
   function goTo(i) {
@@ -556,11 +624,29 @@
     focusContent();
   }
 
-  function goRandom() {
-    if (chronicles.length < 2) return;
-    let r;
-    do { r = Math.floor(Math.random() * chronicles.length); } while (r === idx);
-    idx = r;
+  async function goRandom() {
+    if (total < 2) return;
+    // Sorteamos sobre TODO el archivo, no solo lo cargado.
+    const current = (total - chronicles.length) + idx;
+    let g;
+    do { g = Math.floor(Math.random() * total); } while (g === current);
+    // Cargamos páginas más antiguas hasta que la elegida esté disponible.
+    let guard = 0;
+    while ((total - chronicles.length) > g && chronicles.length < total && guard++ < 500) {
+      await loadOlder();
+    }
+    idx = g - (total - chronicles.length);
+    render();
+    focusContent();
+  }
+
+  // Va a la crónica más antigua del archivo (cargando lo que falte).
+  async function goOldest() {
+    let guard = 0;
+    while (chronicles.length < total && guard++ < 500) {
+      await loadOlder();
+    }
+    idx = 0;
     render();
     focusContent();
   }
@@ -571,7 +657,9 @@
     const url = location.origin + location.pathname + '#' + c.event_date;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Hic Sunt Dracones', text: c.title, url });
+        // Solo el enlace: si añadimos `text`, muchas apps comparten el
+        // titular e ignoran la URL.
+        await navigator.share({ url });
         return;
       }
       await navigator.clipboard.writeText(url);
@@ -597,8 +685,8 @@
     if (!chronicles.length) return;
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
-    else if (e.key === 'Home') { e.preventDefault(); goTo(0); }
-    else if (e.key === 'End') { e.preventDefault(); goToday(); }
+    else if (e.key === 'Home') { e.preventDefault(); goToday(); }
+    else if (e.key === 'End') { e.preventDefault(); goOldest(); }
   });
 
   // Navegación con gestos (swipe) en móvil
