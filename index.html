@@ -375,6 +375,16 @@
     outline-offset: 2px;
   }
 
+  .streak {
+    text-align: center;
+    margin-top: 0.9rem;
+    min-height: 1em;
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    color: var(--gold);
+  }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -448,6 +458,8 @@
     <input type="date" id="datepick" class="date-jump-input" aria-label="Saltar a una fecha concreta">
   </div>
 
+  <div class="streak" id="streak" aria-live="polite"></div>
+
   <div class="footer">
     Navega por el archivo · Solo se muestran las crónicas hasta hoy
   </div>
@@ -513,18 +525,18 @@
       chronicles = page.reverse();   // a orden ascendente
       total = Number.isFinite(parsedTotal) ? parsedTotal : chronicles.length;
 
-      // Deep-link: si la URL apunta a una fecha aún no cargada, seguimos
-      // trayendo páginas más antiguas hasta encontrarla (o agotar el archivo).
-      const fromHash = location.hash.slice(1);
-      if (fromHash) {
+      // Deep-link: aceptamos ?d=YYYY-MM-DD (lo ve el servidor, para el OG)
+      // y, por compatibilidad, el antiguo #YYYY-MM-DD.
+      const fromUrl = new URLSearchParams(location.search).get('d') || location.hash.slice(1);
+      if (fromUrl) {
         let guard = 0;
-        while (chronicles.findIndex(c => c.event_date === fromHash) < 0
+        while (chronicles.findIndex(c => c.event_date === fromUrl) < 0
                && chronicles.length < total && guard++ < 500) {
           await loadOlder();
         }
       }
-      const hashIdx = fromHash ? chronicles.findIndex(c => c.event_date === fromHash) : -1;
-      idx = hashIdx >= 0 ? hashIdx : chronicles.length - 1;
+      const linkIdx = fromUrl ? chronicles.findIndex(c => c.event_date === fromUrl) : -1;
+      idx = linkIdx >= 0 ? linkIdx : chronicles.length - 1;
       render();
       setupDatePicker();   // límites del selector (no bloquea el render)
     } catch (err) {
@@ -574,6 +586,55 @@
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  // Desplaza una fecha ISO (YYYY-MM-DD) un número de días.
+  function shiftISO(iso, days) {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  // ---- Racha de lectura (localStorage) ----
+  const STREAK_KEY = 'dracones_streak';
+
+  function loadStreak() {
+    try { return JSON.parse(localStorage.getItem(STREAK_KEY)) || {}; }
+    catch (_) { return {}; }
+  }
+
+  function saveStreak(s) {
+    try { localStorage.setItem(STREAK_KEY, JSON.stringify(s)); } catch (_) {}
+  }
+
+  // Marca la efeméride de hoy como leída y actualiza la racha.
+  function markReadToday() {
+    const today = todayISO();
+    const s = loadStreak();
+    if (s.lastRead !== today) {
+      s.count = (s.lastRead === shiftISO(today, -1)) ? (s.count || 0) + 1 : 1;
+      s.lastRead = today;
+      saveStreak(s);
+    }
+    renderStreak();
+  }
+
+  function renderStreak() {
+    const el = document.getElementById('streak');
+    if (!el) return;
+    const s = loadStreak();
+    const today = todayISO();
+    const n = s.count || 0;
+    const dias = `${n} día${n === 1 ? '' : 's'}`;
+    if (s.lastRead === today) {
+      el.textContent = `✦ Racha de ${dias} · leída hoy`;
+    } else if (s.lastRead === shiftISO(today, -1) && n > 0) {
+      el.textContent = `✦ Racha de ${dias} — lee la de hoy para no perderla`;
+    } else {
+      el.textContent = '';
+    }
   }
 
   function formatDate(iso) {
@@ -633,7 +694,10 @@
     `;
 
     renderDots();
-    updateHash();
+    updateUrl();
+
+    // Racha de lectura: si es la de hoy, la marcamos como leída
+    if (isToday) markReadToday(); else renderStreak();
 
     // El selector de fecha refleja la crónica visible
     const dp = document.getElementById('datepick');
@@ -660,9 +724,9 @@
       `<div class="dots-track">${dots}</div><div class="dots-counter">${offset + idx + 1} / ${total}</div>`;
   }
 
-  function updateHash() {
+  function updateUrl() {
     const ev = chronicles[idx] && chronicles[idx].event_date;
-    if (ev) history.replaceState(null, '', '#' + ev);
+    if (ev) history.replaceState(null, '', location.pathname + '?d=' + ev);
   }
 
   // Tras navegar por acción del usuario, devolvemos el foco a la tarjeta
@@ -775,7 +839,7 @@
   // Compartir: usa el diálogo nativo si existe; si no, copia el enlace.
   async function share() {
     const c = chronicles[idx];
-    const url = location.origin + location.pathname + '#' + c.event_date;
+    const url = location.origin + location.pathname + '?d=' + c.event_date;
     try {
       if (navigator.share) {
         // Solo el enlace: si añadimos `text`, muchas apps comparten el
@@ -826,10 +890,10 @@
     touchX = null;
   });
 
-  // Permite navegar editando el hash de la URL (o atrás/adelante del navegador)
-  window.addEventListener('hashchange', () => {
-    const ev = location.hash.slice(1);
-    const i = chronicles.findIndex(c => c.event_date === ev);
+  // Reacciona a atrás/adelante del navegador (o a cambios manuales en la URL)
+  window.addEventListener('popstate', () => {
+    const ev = new URLSearchParams(location.search).get('d') || location.hash.slice(1);
+    const i = ev ? chronicles.findIndex(c => c.event_date === ev) : -1;
     if (i >= 0 && i !== idx) { idx = i; render(); }
   });
 

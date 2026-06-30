@@ -1,0 +1,5 @@
+# Edge Function que inyecta Open Graph dinámico cuando la URL trae ?d=fecha,
+# para que al compartir un enlace concreto se vea el titular de esa efeméride.
+[[edge_functions]]
+  path = "/"
+  function = "og"
