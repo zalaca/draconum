@@ -222,6 +222,26 @@
     border-radius: 2px;
   }
 
+  .today-btn {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--red-wax);
+    color: var(--red-wax);
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .today-btn:hover {
+    background: var(--red-wax);
+    color: var(--parchment);
+  }
+
   .progress-bar {
     margin-top: 1.5rem;
     display: flex;
@@ -389,15 +409,24 @@
       .replace(/&lt;\/em&gt;/g, '</em>');
   }
 
+  // Índice de la efeméride "de hoy": la del día actual si existe,
+  // si no la más reciente del archivo.
+  function todayIdx() {
+    const i = chronicles.findIndex(c => c.event_date === todayISO());
+    return i >= 0 ? i : chronicles.length - 1;
+  }
+
   function render() {
     const c = chronicles[idx];
     const isToday = c.event_date === todayISO();
+    const onToday = idx === todayIdx();
 
     document.getElementById('content').innerHTML = `
       <div class="date-row">
         <span class="date-pill">${formatDate(c.event_date)}</span>
         ${isToday ? '<span class="today-badge">Hoy</span>' : ''}
         <span class="category-tag">${escapeHtml(c.category)}</span>
+        ${onToday ? '' : '<button class="today-btn" onclick="goToday()">Volver a hoy</button>'}
       </div>
       <div class="fact-headline">${escapeHtml(c.title)}</div>
       <div class="fact-body">${renderBody(c.body)}</div>
@@ -446,6 +475,11 @@
 
   function goTo(i) {
     idx = i;
+    render();
+  }
+
+  function goToday() {
+    idx = todayIdx();
     render();
   }
 
