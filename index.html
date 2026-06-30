@@ -200,11 +200,49 @@
     border-color: var(--ink);
   }
 
+  .nav-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .nav-btn:disabled:hover {
+    background: none;
+    color: var(--ink-faded);
+    border-color: var(--border-col);
+  }
+
+  .today-badge {
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: var(--red-wax);
+    color: var(--parchment);
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+
   .progress-bar {
     margin-top: 1.5rem;
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .dots-track {
+    display: flex;
     gap: 3px;
     flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .dots-counter {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    color: var(--border-col);
+    opacity: 0.75;
   }
 
   .progress-dot {
@@ -282,6 +320,8 @@
   let idx = 0;
 
   async function loadChronicles() {
+    document.getElementById('content').innerHTML =
+      '<div class="state-msg">Desplegando velas...</div>';
     try {
       const today = todayISO();
       const res = await fetch(
@@ -304,12 +344,16 @@
         return;
       }
 
-      // Siempre arranca mostrando la más reciente (la de hoy, si existe)
-      idx = chronicles.length - 1;
+      // Si la URL apunta a una fecha concreta (#YYYY-MM-DD) la abrimos;
+      // si no, arrancamos en la más reciente (la de hoy, si existe).
+      const fromHash = location.hash.slice(1);
+      const hashIdx = fromHash ? chronicles.findIndex(c => c.event_date === fromHash) : -1;
+      idx = hashIdx >= 0 ? hashIdx : chronicles.length - 1;
       render();
     } catch (err) {
       document.getElementById('content').innerHTML =
-        '<div class="state-msg">No se pudo contactar con el archivo. Revisa la conexión.</div>';
+        '<div class="state-msg">No se pudo contactar con el archivo. Revisa la conexión.' +
+        '<br><button class="nav-btn" style="margin-top:1rem" onclick="loadChronicles()">Reintentar</button></div>';
       console.error(err);
     }
   }
@@ -321,52 +365,114 @@
     return `${d.getFullYear()}-${m}-${day}`;
   }
 
-  function formatDate() {
-    const d = new Date();
+  function formatDate(iso) {
+    // Parseamos la fecha de la crónica (YYYY-MM-DD) sin desfase de zona horaria
+    const d = iso ? new Date(iso + 'T00:00:00') : new Date();
     const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
     return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
   }
 
+  // Evita XSS: escapa cualquier HTML que venga de los datos.
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // El cuerpo permite solo cursivas: escapamos todo y restauramos <em>.
+  function renderBody(s) {
+    return escapeHtml(s)
+      .replace(/&lt;em&gt;/g, '<em>')
+      .replace(/&lt;\/em&gt;/g, '</em>');
+  }
+
   function render() {
     const c = chronicles[idx];
+    const isToday = c.event_date === todayISO();
 
     document.getElementById('content').innerHTML = `
       <div class="date-row">
-        <span class="date-pill">${formatDate()}</span>
-        <span class="category-tag">${c.category}</span>
+        <span class="date-pill">${formatDate(c.event_date)}</span>
+        ${isToday ? '<span class="today-badge">Hoy</span>' : ''}
+        <span class="category-tag">${escapeHtml(c.category)}</span>
       </div>
-      <div class="fact-headline">${c.title}</div>
-      <div class="fact-body">${c.body}</div>
+      <div class="fact-headline">${escapeHtml(c.title)}</div>
+      <div class="fact-body">${renderBody(c.body)}</div>
       <div class="source-row">
-        <span class="source-label">${c.source}</span>
+        <span class="source-label">${escapeHtml(c.source)}</span>
         <div class="nav-row">
-          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled style="opacity:0.35;cursor:default;"' : ''}>&larr; Anterior</button>
-          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled style="opacity:0.35;cursor:default;"' : ''}>Siguiente &rarr;</button>
+          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled' : ''}>&larr; Anterior</button>
+          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled' : ''}>Siguiente &rarr;</button>
         </div>
       </div>
     `;
 
-    const dotsEl = document.getElementById('dots');
-    dotsEl.innerHTML = chronicles.map((_, i) =>
-      `<button class="progress-dot${i === idx ? ' active' : ''}" onclick="goTo(${i})" aria-label="Crónica ${i + 1}"></button>`
-    ).join('');
+    renderDots();
+    updateHash();
+  }
+
+  // Muestra solo una ventana de puntos alrededor del actual + contador,
+  // para que la barra no se rompa con cientos de crónicas.
+  function renderDots() {
+    const total = chronicles.length;
+    const WINDOW = 15;
+    let start = Math.max(0, idx - Math.floor(WINDOW / 2));
+    let end = Math.min(total, start + WINDOW);
+    start = Math.max(0, end - WINDOW);
+
+    let dots = '';
+    for (let i = start; i < end; i++) {
+      dots += `<button class="progress-dot${i === idx ? ' active' : ''}" onclick="goTo(${i})" aria-label="Crónica ${i + 1}"></button>`;
+    }
+    document.getElementById('dots').innerHTML =
+      `<div class="dots-track">${dots}</div><div class="dots-counter">${idx + 1} / ${total}</div>`;
+  }
+
+  function updateHash() {
+    const ev = chronicles[idx] && chronicles[idx].event_date;
+    if (ev) history.replaceState(null, '', '#' + ev);
   }
 
   function next() {
-    if (idx < chronicles.length - 1) idx++;
-    render();
+    if (idx < chronicles.length - 1) { idx++; render(); }
   }
 
   function prev() {
-    if (idx > 0) idx--;
-    render();
+    if (idx > 0) { idx--; render(); }
   }
 
   function goTo(i) {
     idx = i;
     render();
   }
+
+  // Navegación con teclado
+  document.addEventListener('keydown', (e) => {
+    if (!chronicles.length) return;
+    if (e.key === 'ArrowLeft') prev();
+    else if (e.key === 'ArrowRight') next();
+  });
+
+  // Navegación con gestos (swipe) en móvil
+  let touchX = null;
+  const cardEl = document.getElementById('card');
+  cardEl.addEventListener('touchstart', (e) => { touchX = e.changedTouches[0].clientX; }, { passive: true });
+  cardEl.addEventListener('touchend', (e) => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+    touchX = null;
+  });
+
+  // Permite navegar editando el hash de la URL (o atrás/adelante del navegador)
+  window.addEventListener('hashchange', () => {
+    const ev = location.hash.slice(1);
+    const i = chronicles.findIndex(c => c.event_date === ev);
+    if (i >= 0 && i !== idx) { idx = i; render(); }
+  });
 
   loadChronicles();
 </script>

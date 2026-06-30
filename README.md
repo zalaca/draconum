@@ -21,14 +21,3 @@ Tabla `chronicles`:
 | `source`      | text     | Fuente / referencia                   |
 | `active`      | boolean  | Si se debe mostrar o no               |
 | `event_date`  | date     | Fecha en la que debe aparecer         |
-
-## Despliegue
-
-1. Sube este repositorio a GitHub.
-2. Conecta el repo a [Netlify](https://app.netlify.com) ("Import from Git").
-3. (Opcional) Activa protección por contraseña en Netlify (Site settings → Visitor access).
-4. Apunta tu dominio personalizado desde Porkbun a Netlify.
-
-## Añadir más efemérides
-
-Inserta filas nuevas en la tabla `chronicles` de Supabase con una `event_date` futura. La web las mostrará automáticamente cuando llegue el día.
