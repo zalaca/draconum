@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Efemérides Olvidadas — Dato histórico</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --parchment: #f2e8d5;
+    --ink: #1c1208;
+    --ink-faded: #4a3820;
+    --ink-muted: #7a6045;
+    --red-wax: #8b2020;
+    --gold: #9a7230;
+    --border-col: #b89a6a;
+    --card-bg: #faf3e3;
+  }
+
+  body {
+    background-color: #2a1f0e;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(100,70,30,0.08) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(100,70,30,0.05) 40px);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    font-family: 'EB Garamond', Georgia, serif;
+  }
+
+  .wrapper {
+    max-width: 680px;
+    width: 100%;
+  }
+
+  .masthead {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .masthead-rule {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .masthead-rule::before,
+  .masthead-rule::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-col);
+  }
+
+  .compass {
+    font-size: 1.6rem;
+    color: var(--gold);
+    line-height: 1;
+  }
+
+  .title {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-weight: 600;
+    color: var(--parchment);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .subtitle {
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    color: var(--border-col);
+    font-size: 0.95rem;
+    margin-top: 0.3rem;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 1.5px solid var(--border-col);
+    border-radius: 2px;
+    padding: 2.5rem 2.5rem 2rem;
+    position: relative;
+    box-shadow: 0 0 0 4px rgba(184,154,106,0.15), 0 8px 32px rgba(0,0,0,0.5);
+    min-height: 260px;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border: 1px solid rgba(184,154,106,0.3);
+    pointer-events: none;
+  }
+
+  .corner {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: var(--gold);
+    border-style: solid;
+    opacity: 0.7;
+  }
+  .corner-tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
+  .corner-tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
+  .corner-bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
+  .corner-br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
+
+  .date-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .date-pill {
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--red-wax);
+    border: 1px solid var(--red-wax);
+    padding: 3px 10px;
+    border-radius: 2px;
+  }
+
+  .category-tag {
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    font-size: 0.88rem;
+    color: var(--ink-muted);
+  }
+
+  .fact-headline {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1.1rem, 3vw, 1.45rem);
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.35;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-col);
+  }
+
+  .fact-body {
+    font-size: 1.08rem;
+    line-height: 1.8;
+    color: var(--ink-faded);
+    margin-bottom: 1.5rem;
+  }
+
+  .fact-body em {
+    color: var(--red-wax);
+    font-style: italic;
+  }
+
+  .source-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-col);
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .source-label {
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+  }
+
+  .nav-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .nav-btn {
+    background: none;
+    border: 1px solid var(--border-col);
+    color: var(--ink-faded);
+    font-family: 'EB Garamond', serif;
+    font-size: 0.88rem;
+    padding: 4px 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .nav-btn:hover {
+    background: var(--ink);
+    color: var(--parchment);
+    border-color: var(--ink);
+  }
+
+  .progress-bar {
+    margin-top: 1.5rem;
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+
+  .progress-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border-col);
+    opacity: 0.4;
+    transition: opacity 0.2s;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+  }
+
+  .progress-dot.active {
+    background: var(--red-wax);
+    opacity: 1;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 1.25rem;
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    font-size: 0.82rem;
+    color: var(--border-col);
+    opacity: 0.7;
+  }
+
+  .state-msg {
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    font-size: 1rem;
+    color: var(--ink-muted);
+    text-align: center;
+    padding: 3rem 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+  <div class="masthead">
+    <div class="masthead-rule">
+      <span class="compass">✦</span>
+    </div>
+    <div class="title">Efemérides Olvidadas</div>
+    <div class="subtitle">Un dato de historia cada día</div>
+  </div>
+
+  <div class="card" id="card">
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+    <div id="content">
+      <div class="state-msg">Desplegando velas...</div>
+    </div>
+  </div>
+
+  <div class="progress-bar" id="dots"></div>
+
+  <div class="footer">
+    Navega por el archivo · Solo se muestran las crónicas hasta hoy
+  </div>
+</div>
+
+<script>
+  // ---- CONFIGURACIÓN DE SUPABASE ----
+  const SUPABASE_URL = "https://cbmzxibsbftrdrbedloj.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
+  // ------------------------------------
+
+  let chronicles = [];
+  let idx = 0;
+
+  async function loadChronicles() {
+    try {
+      const today = todayISO();
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/chronicles?select=*&active=eq.true&event_date=lte.${today}&order=event_date.asc`,
+        {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          }
+        }
+      );
+
+      if (!res.ok) throw new Error("Error de red: " + res.status);
+
+      chronicles = await res.json();
+
+      if (!chronicles.length) {
+        document.getElementById('content').innerHTML =
+          '<div class="state-msg">No hay crónicas disponibles todavía.</div>';
+        return;
+      }
+
+      // Siempre arranca mostrando la más reciente (la de hoy, si existe)
+      idx = chronicles.length - 1;
+      render();
+    } catch (err) {
+      document.getElementById('content').innerHTML =
+        '<div class="state-msg">No se pudo contactar con el archivo. Revisa la conexión.</div>';
+      console.error(err);
+    }
+  }
+
+  function todayISO() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function formatDate() {
+    const d = new Date();
+    const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+
+  function render() {
+    const c = chronicles[idx];
+
+    document.getElementById('content').innerHTML = `
+      <div class="date-row">
+        <span class="date-pill">${formatDate()}</span>
+        <span class="category-tag">${c.category}</span>
+      </div>
+      <div class="fact-headline">${c.title}</div>
+      <div class="fact-body">${c.body}</div>
+      <div class="source-row">
+        <span class="source-label">${c.source}</span>
+        <div class="nav-row">
+          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled style="opacity:0.35;cursor:default;"' : ''}>&larr; Anterior</button>
+          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled style="opacity:0.35;cursor:default;"' : ''}>Siguiente &rarr;</button>
+        </div>
+      </div>
+    `;
+
+    const dotsEl = document.getElementById('dots');
+    dotsEl.innerHTML = chronicles.map((_, i) =>
+      `<button class="progress-dot${i === idx ? ' active' : ''}" onclick="goTo(${i})" aria-label="Crónica ${i + 1}"></button>`
+    ).join('');
+  }
+
+  function next() {
+    if (idx < chronicles.length - 1) idx++;
+    render();
+  }
+
+  function prev() {
+    if (idx > 0) idx--;
+    render();
+  }
+
+  function goTo(i) {
+    idx = i;
+    render();
+  }
+
+  loadChronicles();
+</script>
+</body>
+</html>
