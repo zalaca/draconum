@@ -1,7 +1,7 @@
 // Service worker de Hic Sunt Dracones
 // Cachea el "app shell" para que la web abra al instante y funcione offline.
 // Sube el número de versión al cambiar estos archivos para forzar refresco.
-const CACHE = 'dracones-v7';
+const CACHE = 'dracones-v8';
 const ASSETS = [
   '/',
   '/index.html',

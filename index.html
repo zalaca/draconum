@@ -563,7 +563,7 @@
       <span class="compass">✦</span>
     </div>
     <div class="title">Hic Sunt Dracones</div>
-    <div class="subtitle">Donde los mapas terminan, comienza la historia · Un dato cada día</div>
+    <div class="subtitle">Donde los mapas terminan, comienza la historia</div>
   </div>
 
   <div class="card" id="card">
@@ -575,7 +575,6 @@
       <div class="state-msg">Desplegando velas...</div>
     </div>
     <div id="minimap" class="minimap" aria-label="Mapa del lugar del suceso" hidden></div>
-    <div class="busy-overlay" id="busy" role="status" aria-live="polite" hidden>Buscando en el archivo…</div>
   </div>
 
   <div class="map-launch">
@@ -585,14 +584,12 @@
   <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
 
   <div class="date-jump">
-    <label for="datepick" class="date-jump-label">Saltar a una fecha</label>
-    <input type="date" id="datepick" class="date-jump-input" aria-label="Saltar a una fecha concreta">
+    <label for="catpick" class="date-jump-label">Saltar a una categoría</label>
+    <select id="catpick" class="date-jump-input" aria-label="Saltar a una categoría"></select>
   </div>
 
-  <div class="streak" id="streak" aria-live="polite"></div>
-
   <div class="footer">
-    Navega por el archivo · Solo se muestran las crónicas hasta hoy
+    Navega la historia · agrupada por categorías
   </div>
 </div>
 
@@ -610,14 +607,14 @@
   const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
   // ------------------------------------
 
-  const PAGE_SIZE = 60;                                  // crónicas por página
-  const COLS = "event_date,title,body,source,category,lat,lng,place_name";  // solo lo que se usa
+  const COLS = "event_date,date_label,title,body,source,category,lat,lng,place_name";
   const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
 
-  let chronicles = [];   // cargadas, en orden ascendente y contiguas hasta hoy
+  let chronicles = [];   // todas las efemérides, agrupadas por categoría (lista plana)
   let idx = 0;
-  let total = 0;         // total real de crónicas hasta hoy (no solo las cargadas)
-  let loadingOlder = false;
+  let categories = [];   // nombres de categoría, en orden de 1ª aparición (event_date)
+  let byCat = {};        // categoría -> array de sus efemérides (event_date asc)
+  let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
   async function apiFetch(query, withCount, table = 'chronicles') {
@@ -643,41 +640,37 @@
     document.getElementById('content').innerHTML =
       '<div class="state-msg">Desplegando velas...</div>';
     try {
-      const today = todayISO();
-      // Solo la página más reciente, no todo el archivo.
-      const res = await apiFetch(
-        `select=${COLS}&active=eq.true&event_date=lte.${today}&order=event_date.desc&limit=${PAGE_SIZE}`,
-        true
-      );
-
-      // Total real desde la cabecera content-range: "0-59/342"
-      const range = res.headers.get('content-range') || '';
-      const parsedTotal = parseInt(range.split('/')[1], 10);
-
-      const page = await res.json();
-      if (!page.length) {
+      // Todo el archivo activo, ordenado por event_date (clave de orden interna).
+      const res = await apiFetch(`select=${COLS}&active=eq.true&order=event_date.asc`, false);
+      const asc = await res.json();
+      if (!asc.length) {
         document.getElementById('content').innerHTML =
           '<div class="state-msg">No hay crónicas disponibles todavía.</div>';
         return;
       }
 
-      chronicles = page.reverse();   // a orden ascendente
-      total = Number.isFinite(parsedTotal) ? parsedTotal : chronicles.length;
+      // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
+      categories = [];
+      byCat = {};
+      catStart = {};
+      const seen = new Set();
+      asc.forEach(c => {
+        if (!seen.has(c.category)) { seen.add(c.category); categories.push(c.category); }
+        (byCat[c.category] = byCat[c.category] || []).push(c);
+      });
+      // Lista plana: categorías en orden, cada una con sus efemérides en orden.
+      chronicles = [];
+      categories.forEach(cat => { catStart[cat] = chronicles.length; chronicles.push(...byCat[cat]); });
 
-      // Deep-link: aceptamos ?d=YYYY-MM-DD (lo ve el servidor, para el OG)
-      // y, por compatibilidad, el antiguo #YYYY-MM-DD.
+      setupCategoryPicker();
+
+      // Posición inicial: deep-link ?d=fecha si lo hay; si no, categoría al azar.
       const fromUrl = new URLSearchParams(location.search).get('d') || location.hash.slice(1);
-      if (fromUrl) {
-        let guard = 0;
-        while (chronicles.findIndex(c => c.event_date === fromUrl) < 0
-               && chronicles.length < total && guard++ < 500) {
-          await loadOlder();
-        }
-      }
       const linkIdx = fromUrl ? chronicles.findIndex(c => c.event_date === fromUrl) : -1;
-      idx = linkIdx >= 0 ? linkIdx : chronicles.length - 1;
+      idx = linkIdx >= 0
+        ? linkIdx
+        : catStart[categories[Math.floor(Math.random() * categories.length)]];
       render();
-      setupDatePicker();   // límites del selector (no bloquea el render)
     } catch (err) {
       const msg = err && err.name === 'AbortError'
         ? 'La conexión tardó demasiado.'
@@ -689,91 +682,14 @@
     }
   }
 
-  // Trae la siguiente página de crónicas más antiguas y las antepone.
-  // Devuelve cuántas añadió (0 también si falla, para degradar con elegancia).
-  async function loadOlder() {
-    if (loadingOlder || chronicles.length >= total) return 0;
-    loadingOlder = true;
-    try {
-      const oldest = chronicles[0].event_date;
-      const res = await apiFetch(
-        `select=${COLS}&active=eq.true&event_date=lt.${oldest}&order=event_date.desc&limit=${PAGE_SIZE}`,
-        false
-      );
-      const older = (await res.json()).reverse();
-      if (older.length) {
-        chronicles = older.concat(chronicles);
-        idx += older.length;   // mantenemos apuntando a la misma crónica
-      }
-      return older.length;
-    } catch (err) {
-      console.error('No se pudieron cargar crónicas más antiguas:', err);
-      return 0;   // el llamador lo trata como "no hay más por ahora"
-    } finally {
-      loadingOlder = false;
-    }
-  }
-
-  // Muestra/oculta el velo "Buscando en el archivo…" en saltos multi-página.
-  function setBusy(on) {
-    const el = document.getElementById('busy');
-    if (el) el.hidden = !on;
-  }
-
-  function todayISO() {
-    const d = new Date();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
-
-  // Desplaza una fecha ISO (YYYY-MM-DD) un número de días.
-  function shiftISO(iso, days) {
-    const d = new Date(iso + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
-
-  // ---- Racha de lectura (localStorage) ----
-  const STREAK_KEY = 'dracones_streak';
-
-  function loadStreak() {
-    try { return JSON.parse(localStorage.getItem(STREAK_KEY)) || {}; }
-    catch (_) { return {}; }
-  }
-
-  function saveStreak(s) {
-    try { localStorage.setItem(STREAK_KEY, JSON.stringify(s)); } catch (_) {}
-  }
-
-  // Marca la efeméride de hoy como leída y actualiza la racha.
-  function markReadToday() {
-    const today = todayISO();
-    const s = loadStreak();
-    if (s.lastRead !== today) {
-      s.count = (s.lastRead === shiftISO(today, -1)) ? (s.count || 0) + 1 : 1;
-      s.lastRead = today;
-      saveStreak(s);
-    }
-    renderStreak();
-  }
-
-  function renderStreak() {
-    const el = document.getElementById('streak');
-    if (!el) return;
-    const s = loadStreak();
-    const today = todayISO();
-    const n = s.count || 0;
-    const dias = `${n} día${n === 1 ? '' : 's'}`;
-    if (s.lastRead === today) {
-      el.textContent = `✦ Racha de ${dias} · leída hoy`;
-    } else if (s.lastRead === shiftISO(today, -1) && n > 0) {
-      el.textContent = `✦ Racha de ${dias} — lee la de hoy para no perderla`;
-    } else {
-      el.textContent = '';
-    }
+  // Rellena el desplegable de categorías (orden alfabético para buscar rápido).
+  function setupCategoryPicker() {
+    const sel = document.getElementById('catpick');
+    if (!sel) return;
+    const sorted = [...categories].sort((a, b) => a.localeCompare(b, 'es'));
+    sel.innerHTML = sorted.map(cat =>
+      `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`
+    ).join('');
   }
 
   function formatDate(iso) {
@@ -800,24 +716,13 @@
       .replace(/&lt;\/em&gt;/g, '</em>');
   }
 
-  // Índice de la efeméride "de hoy": la del día actual si existe,
-  // si no la más reciente del archivo.
-  function todayIdx() {
-    const i = chronicles.findIndex(c => c.event_date === todayISO());
-    return i >= 0 ? i : chronicles.length - 1;
-  }
-
   function render() {
     const c = chronicles[idx];
-    const isToday = c.event_date === todayISO();
-    const onToday = idx === todayIdx();
 
     document.getElementById('content').innerHTML = `
       <div class="date-row">
-        <span class="date-pill">${formatDate(c.event_date)}</span>
-        ${isToday ? '<span class="today-badge">Hoy</span>' : ''}
+        <span class="date-pill">${escapeHtml(c.date_label || formatDate(c.event_date))}</span>
         <span class="category-tag">${escapeHtml(c.category)}</span>
-        ${onToday ? '' : '<button class="today-btn" onclick="goToday()">Volver a hoy</button>'}
       </div>
       <div class="fact-headline">${escapeHtml(c.title)}</div>
       <div class="fact-body">${renderBody(c.body)}</div>
@@ -825,9 +730,9 @@
         <span class="source-label">${escapeHtml(c.source)}</span>
         <div class="nav-row">
           <button class="nav-btn share-btn" onclick="share()" aria-label="Compartir esta efeméride">Compartir</button>
-          <button class="nav-btn" onclick="goRandom()" aria-label="Ir a una efeméride al azar">Aleatoria</button>
-          <button class="nav-btn" onclick="prev()" ${idx === 0 && chronicles.length >= total ? 'disabled' : ''} aria-label="Efeméride anterior">&larr; Anterior</button>
-          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled' : ''} aria-label="Efeméride siguiente">Siguiente &rarr;</button>
+          <button class="nav-btn" onclick="randomStory()" aria-label="Ir a una historia al azar">Historia aleatoria</button>
+          <button class="nav-btn" onclick="prev()" aria-label="Efeméride anterior">&larr; Anterior</button>
+          <button class="nav-btn" onclick="next()" aria-label="Efeméride siguiente">Siguiente &rarr;</button>
         </div>
       </div>
     `;
@@ -835,12 +740,9 @@
     renderDots();
     updateUrl();
 
-    // Racha de lectura: si es la de hoy, la marcamos como leída
-    if (isToday) markReadToday(); else renderStreak();
-
-    // El selector de fecha refleja la crónica visible
-    const dp = document.getElementById('datepick');
-    if (dp) dp.value = c.event_date;
+    // El desplegable refleja la categoría visible
+    const sel = document.getElementById('catpick');
+    if (sel) sel.value = c.category;
 
     // Mini-mapa del lugar del suceso (si la crónica tiene coordenadas)
     updateMiniMap(c);
@@ -928,7 +830,7 @@
       // Al pulsar "Leer" en un pin, abrimos esa efeméride.
       exploreMap.on('popupopen', (e) => {
         const btn = e.popup.getElement().querySelector('.map-popup-btn');
-        if (btn) btn.onclick = () => { closeMap(); goToDate(btn.dataset.date); };
+        if (btn) btn.onclick = () => { closeMap(); openByDate(btn.dataset.date); };
       });
     }
     refreshMap(exploreMap);
@@ -944,7 +846,6 @@
   async function loadMapPoints() {
     mapPointsLoaded = true;
     try {
-      const today = todayISO();
       const allLatLng = [];          // para encuadrar el mapa al final
       const onLine = new Set();      // fechas ya representadas en una ruta
 
@@ -982,7 +883,7 @@
 
       // 2) Efemérides con coordenadas que NO están en ninguna línea → aro hueco
       const loose = await apiFetch(
-        `select=event_date,title,lat,lng&active=eq.true&event_date=lte.${today}&lat=not.is.null&limit=5000`,
+        'select=event_date,title,lat,lng&active=eq.true&lat=not.is.null&limit=5000',
         false
       ).then(r => r.json());
       loose.forEach(p => {
@@ -1000,24 +901,24 @@
     }
   }
 
-  // Muestra solo una ventana de puntos alrededor del actual + contador,
-  // para que la barra no se rompa con cientos de crónicas.
+  // Dots de la CATEGORÍA actual (ventana alrededor del actual) + contador X/Y.
   function renderDots() {
-    const loaded = chronicles.length;
-    const offset = total - loaded;        // crónicas más antiguas aún sin cargar
+    const cat = chronicles[idx].category;
+    const start = catStart[cat];          // índice de la 1ª de la categoría
+    const len = byCat[cat].length;        // efemérides en la categoría
+    const pos = idx - start;              // posición dentro de la categoría
     const WINDOW = 15;
-    let start = Math.max(0, idx - Math.floor(WINDOW / 2));
-    let end = Math.min(loaded, start + WINDOW);
-    start = Math.max(0, end - WINDOW);
+    let s = Math.max(0, pos - Math.floor(WINDOW / 2));
+    let e = Math.min(len, s + WINDOW);
+    s = Math.max(0, e - WINDOW);
 
     let dots = '';
-    for (let i = start; i < end; i++) {
-      const cur = i === idx;
-      const globalNum = offset + i + 1;
-      dots += `<button class="progress-dot${cur ? ' active' : ''}" onclick="goTo(${i})"${cur ? ' aria-current="true"' : ''} aria-label="Crónica ${globalNum} de ${total}"></button>`;
+    for (let i = s; i < e; i++) {
+      const cur = i === pos;
+      dots += `<button class="progress-dot${cur ? ' active' : ''}" onclick="goTo(${start + i})"${cur ? ' aria-current="true"' : ''} aria-label="Efeméride ${i + 1} de ${len} en ${escapeHtml(cat)}"></button>`;
     }
     document.getElementById('dots').innerHTML =
-      `<div class="dots-track">${dots}</div><div class="dots-counter">${offset + idx + 1} / ${total}</div>`;
+      `<div class="dots-track">${dots}</div><div class="dots-counter">${pos + 1} / ${len}</div>`;
   }
 
   function updateUrl() {
@@ -1031,18 +932,12 @@
     document.getElementById('content').focus({ preventScroll: true });
   }
 
-  function next() {
-    if (idx < chronicles.length - 1) { idx++; render(); focusContent(); }
-  }
+  // Avanza/retrocede una efeméride. Al cruzar el borde de una categoría salta a
+  // la siguiente/anterior (la lista plana ya está agrupada por categoría); en
+  // los extremos del archivo da la vuelta.
+  function next() { idx = (idx + 1) % chronicles.length; render(); focusContent(); }
 
-  async function prev() {
-    if (idx > 0) { idx--; render(); focusContent(); return; }
-    // Estamos en la más antigua cargada: traemos la página anterior si la hay.
-    if (chronicles.length < total) {
-      const added = await loadOlder();
-      if (added > 0) { idx = added - 1; render(); focusContent(); }
-    }
-  }
+  function prev() { idx = (idx - 1 + chronicles.length) % chronicles.length; render(); focusContent(); }
 
   function goTo(i) {
     if (i === idx) return;
@@ -1051,85 +946,29 @@
     focusContent();
   }
 
-  function goToday() {
-    idx = todayIdx();
+  // Salta a la 1ª efeméride de una categoría al azar (distinta a la actual).
+  function randomStory() {
+    if (categories.length < 2) return;
+    const cur = chronicles[idx].category;
+    let cat;
+    do { cat = categories[Math.floor(Math.random() * categories.length)]; } while (cat === cur);
+    idx = catStart[cat];
     render();
     focusContent();
   }
 
-  async function goRandom() {
-    if (total < 2) return;
-    // Sorteamos sobre TODO el archivo, no solo lo cargado.
-    const current = (total - chronicles.length) + idx;
-    let g;
-    do { g = Math.floor(Math.random() * total); } while (g === current);
-    // Cargamos páginas más antiguas hasta que la elegida esté disponible.
-    setBusy(true);
-    try {
-      let guard = 0;
-      while ((total - chronicles.length) > g && chronicles.length < total && guard++ < 500) {
-        if (await loadOlder() === 0) break;   // fallo o fin: no insistimos
-      }
-    } finally {
-      setBusy(false);
-    }
-    // Si un fallo impidió llegar, acotamos a lo que sí está cargado.
-    idx = Math.max(0, Math.min(chronicles.length - 1, g - (total - chronicles.length)));
+  // Salta a la 1ª efeméride de una categoría concreta.
+  function goToCategory(cat) {
+    if (catStart[cat] == null) return;
+    idx = catStart[cat];
     render();
     focusContent();
   }
 
-  // Va a la crónica más antigua del archivo (cargando lo que falte).
-  async function goOldest() {
-    setBusy(true);
-    try {
-      let guard = 0;
-      while (chronicles.length < total && guard++ < 500) {
-        if (await loadOlder() === 0) break;   // fallo o fin
-      }
-    } finally {
-      setBusy(false);
-    }
-    idx = 0;
-    render();
-    focusContent();
-  }
-
-  // Salta a la crónica de una fecha concreta (o la más reciente anterior a
-  // ella, ya que no todos los días tienen efeméride).
-  async function goToDate(dateStr) {
-    if (!dateStr || !chronicles.length) return;
-    setBusy(true);
-    try {
-      let guard = 0;
-      // Cargamos hacia atrás hasta cubrir la fecha pedida (o agotar el archivo).
-      while (chronicles[0].event_date > dateStr && chronicles.length < total && guard++ < 500) {
-        if (await loadOlder() === 0) break;
-      }
-    } finally {
-      setBusy(false);
-    }
-    // La crónica de esa fecha, o la más reciente que no la supere.
-    let target = -1;
-    for (let i = chronicles.length - 1; i >= 0; i--) {
-      if (chronicles[i].event_date <= dateStr) { target = i; break; }
-    }
-    idx = target >= 0 ? target : 0;
-    render();
-    focusContent();
-  }
-
-  // Configura los límites del selector de fecha (hoy como máximo, y la
-  // fecha más antigua del archivo como mínimo).
-  async function setupDatePicker() {
-    const input = document.getElementById('datepick');
-    if (!input) return;
-    input.max = todayISO();
-    try {
-      const res = await apiFetch('select=event_date&active=eq.true&order=event_date.asc&limit=1', false);
-      const rows = await res.json();
-      if (rows.length) input.min = rows[0].event_date;
-    } catch (_) { /* sin mínimo: el selector sigue siendo usable */ }
+  // Abre la efeméride de una fecha concreta (usado por los pines del mapa).
+  function openByDate(dateStr) {
+    const i = chronicles.findIndex(c => c.event_date === dateStr);
+    if (i >= 0) { idx = i; render(); focusContent(); }
   }
 
   // Compartir: usa el diálogo nativo si existe; si no, copia el enlace.
@@ -1161,7 +1000,7 @@
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
   }
 
-  // Navegación con teclado: flechas, e inicio/fin del archivo
+  // Teclado: flechas (efeméride), Inicio/Fin (1ª/última de la categoría actual)
   document.addEventListener('keydown', (e) => {
     // Con el mapa abierto, solo escuchamos Escape para cerrarlo.
     if (!document.getElementById('mapModal').hidden) {
@@ -1171,13 +1010,21 @@
     if (!chronicles.length) return;
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
-    else if (e.key === 'Home') { e.preventDefault(); goToday(); }
-    else if (e.key === 'End') { e.preventDefault(); goOldest(); }
+    else if (e.key === 'Home') {
+      e.preventDefault();
+      idx = catStart[chronicles[idx].category];
+      render(); focusContent();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const cat = chronicles[idx].category;
+      idx = catStart[cat] + byCat[cat].length - 1;
+      render(); focusContent();
+    }
   });
 
-  // Selector de fecha: saltar a la crónica elegida
-  document.getElementById('datepick').addEventListener('change', (e) => {
-    goToDate(e.target.value);
+  // Selector de categoría: saltar a su primera efeméride
+  document.getElementById('catpick').addEventListener('change', (e) => {
+    goToCategory(e.target.value);
   });
 
   // Navegación con gestos (swipe) en móvil
