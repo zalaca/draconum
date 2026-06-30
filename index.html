@@ -4,6 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hic Sunt Dracones — Un dato de historia cada día</title>
+<meta name="description" content="Hic Sunt Dracones: una efeméride histórica cada día. Donde los mapas terminan, comienza la historia.">
+<meta name="theme-color" content="#2a1f0e">
+
+<!-- Open Graph / compartir en redes -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Hic Sunt Dracones">
+<meta property="og:description" content="Donde los mapas terminan, comienza la historia · Un dato de historia cada día.">
+<meta property="og:url" content="https://draconum.app">
+<meta property="og:locale" content="es_ES">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Hic Sunt Dracones">
+<meta name="twitter:description" content="Donde los mapas terminan, comienza la historia · Un dato de historia cada día.">
+
+<!-- Favicon: brújula en SVG, sin pesos externos -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%232a1f0e'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%239a7230'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -300,6 +316,28 @@
     text-align: center;
     padding: 3rem 0;
   }
+
+  /* Foco visible y de marca para navegación con teclado */
+  .nav-btn:focus-visible,
+  .today-btn:focus-visible,
+  .progress-dot:focus-visible {
+    outline: 2px solid var(--red-wax);
+    outline-offset: 2px;
+  }
+
+  .progress-dot[aria-current="true"] {
+    outline: 1px solid var(--red-wax);
+    outline-offset: 2px;
+  }
+
+  /* Respeta a quien prefiere menos movimiento */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+    html { scroll-behavior: auto; }
+  }
 </style>
 </head>
 <body>
@@ -318,12 +356,12 @@
     <div class="corner corner-tr"></div>
     <div class="corner corner-bl"></div>
     <div class="corner corner-br"></div>
-    <div id="content">
+    <div id="content" aria-live="polite" aria-atomic="true" tabindex="-1">
       <div class="state-msg">Desplegando velas...</div>
     </div>
   </div>
 
-  <div class="progress-bar" id="dots"></div>
+  <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
 
   <div class="footer">
     Navega por el archivo · Solo se muestran las crónicas hasta hoy
@@ -433,8 +471,10 @@
       <div class="source-row">
         <span class="source-label">${escapeHtml(c.source)}</span>
         <div class="nav-row">
-          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled' : ''}>&larr; Anterior</button>
-          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled' : ''}>Siguiente &rarr;</button>
+          <button class="nav-btn share-btn" onclick="share()" aria-label="Compartir esta efeméride">Compartir</button>
+          <button class="nav-btn" onclick="goRandom()" aria-label="Ir a una efeméride al azar">Aleatoria</button>
+          <button class="nav-btn" onclick="prev()" ${idx === 0 ? 'disabled' : ''} aria-label="Efeméride anterior">&larr; Anterior</button>
+          <button class="nav-btn" onclick="next()" ${idx === chronicles.length - 1 ? 'disabled' : ''} aria-label="Efeméride siguiente">Siguiente &rarr;</button>
         </div>
       </div>
     `;
@@ -454,7 +494,8 @@
 
     let dots = '';
     for (let i = start; i < end; i++) {
-      dots += `<button class="progress-dot${i === idx ? ' active' : ''}" onclick="goTo(${i})" aria-label="Crónica ${i + 1}"></button>`;
+      const cur = i === idx;
+      dots += `<button class="progress-dot${cur ? ' active' : ''}" onclick="goTo(${i})"${cur ? ' aria-current="true"' : ''} aria-label="Crónica ${i + 1} de ${total}"></button>`;
     }
     document.getElementById('dots').innerHTML =
       `<div class="dots-track">${dots}</div><div class="dots-counter">${idx + 1} / ${total}</div>`;
@@ -465,29 +506,76 @@
     if (ev) history.replaceState(null, '', '#' + ev);
   }
 
+  // Tras navegar por acción del usuario, devolvemos el foco a la tarjeta
+  // para que el teclado no se pierda al destruirse el botón pulsado.
+  function focusContent() {
+    document.getElementById('content').focus({ preventScroll: true });
+  }
+
   function next() {
-    if (idx < chronicles.length - 1) { idx++; render(); }
+    if (idx < chronicles.length - 1) { idx++; render(); focusContent(); }
   }
 
   function prev() {
-    if (idx > 0) { idx--; render(); }
+    if (idx > 0) { idx--; render(); focusContent(); }
   }
 
   function goTo(i) {
+    if (i === idx) return;
     idx = i;
     render();
+    focusContent();
   }
 
   function goToday() {
     idx = todayIdx();
     render();
+    focusContent();
   }
 
-  // Navegación con teclado
+  function goRandom() {
+    if (chronicles.length < 2) return;
+    let r;
+    do { r = Math.floor(Math.random() * chronicles.length); } while (r === idx);
+    idx = r;
+    render();
+    focusContent();
+  }
+
+  // Compartir: usa el diálogo nativo si existe; si no, copia el enlace.
+  async function share() {
+    const c = chronicles[idx];
+    const url = location.origin + location.pathname + '#' + c.event_date;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Hic Sunt Dracones', text: c.title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      flashShare('¡Enlace copiado!');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // el usuario canceló
+      try { await navigator.clipboard.writeText(url); flashShare('¡Enlace copiado!'); }
+      catch (_) { flashShare('No se pudo copiar'); }
+    }
+  }
+
+  function flashShare(msg) {
+    const btn = document.querySelector('.share-btn');
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = msg;
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+  }
+
+  // Navegación con teclado: flechas, e inicio/fin del archivo
   document.addEventListener('keydown', (e) => {
     if (!chronicles.length) return;
     if (e.key === 'ArrowLeft') prev();
     else if (e.key === 'ArrowRight') next();
+    else if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    else if (e.key === 'End') { e.preventDefault(); goToday(); }
   });
 
   // Navegación con gestos (swipe) en móvil
