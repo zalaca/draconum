@@ -470,17 +470,28 @@
     cursor: pointer;
   }
 
-  /* Pin estilo sello de lacre, a juego con el tema */
-  .map-pin {
+  /* Pin estilo sello de lacre. El <span> interno es el círculo visible;
+     los pines de ruta colorean el fondo en línea con el color de su ruta. */
+  .map-pin span {
+    display: block;
     width: 16px;
     height: 16px;
     border-radius: 50%;
     background: var(--red-wax);
     border: 2px solid var(--card-bg);
     box-shadow: 0 0 0 1px var(--gold), 0 2px 5px rgba(0, 0, 0, 0.55);
+    box-sizing: border-box;
+    transition: transform 0.12s;
   }
 
-  .map-pin:hover { transform: scale(1.2); }
+  .map-pin:hover span { transform: scale(1.25); }
+
+  /* Efeméride suelta (fuera de toda ruta): aro hueco, sin relleno */
+  .map-pin.hollow span {
+    background: transparent;
+    border: 2px solid var(--gold);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 5px rgba(0, 0, 0, 0.45);
+  }
 
   /* Popups en pergamino */
   .leaflet-popup-content-wrapper,
@@ -844,18 +855,36 @@
     requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize(false)));
   }
 
-  // Pin estilo sello de lacre (memoizado; se crea cuando Leaflet ya cargó).
-  let placeIcon;
-  function placePin() {
-    if (!placeIcon) {
-      placeIcon = L.divIcon({
+  // Iconos de pin (memoizados por color; se crean con Leaflet ya cargado).
+  const ICON_OPTS = { iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10] };
+  const sealIcons = {};
+
+  // Sello relleno; si se pasa color, lo usa (color de la ruta).
+  function sealIcon(color) {
+    const key = color || 'default';
+    if (!sealIcons[key]) {
+      sealIcons[key] = L.divIcon({
         className: 'map-pin',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-        popupAnchor: [0, -10]
+        html: color ? `<span style="background:${color}"></span>` : '<span></span>',
+        ...ICON_OPTS
       });
     }
-    return placeIcon;
+    return sealIcons[key];
+  }
+
+  // Aro hueco para efemérides sueltas (fuera de cualquier ruta).
+  let hollowIcon;
+  function standalonePin() {
+    if (!hollowIcon) {
+      hollowIcon = L.divIcon({ className: 'map-pin hollow', html: '<span></span>', ...ICON_OPTS });
+    }
+    return hollowIcon;
+  }
+
+  // Popup con el titular y un botón para abrir esa efeméride.
+  function pointPopup(title, date) {
+    return `<strong>${escapeHtml(title)}</strong><br>` +
+           `<button class="map-popup-btn" data-date="${escapeHtml(date)}">Leer</button>`;
   }
 
   // Muestra/actualiza el mini-mapa con el lugar de la crónica actual.
@@ -877,7 +906,7 @@
     }
     miniMap.setView([c.lat, c.lng], 5);
     if (miniMarker) miniMarker.setLatLng([c.lat, c.lng]);
-    else miniMarker = L.marker([c.lat, c.lng], { icon: placePin() }).addTo(miniMap);
+    else miniMarker = L.marker([c.lat, c.lng], { icon: sealIcon() }).addTo(miniMap);
     if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
     // El contenedor estaba oculto: recalculamos el tamaño del mapa.
     refreshMap(miniMap);
@@ -911,23 +940,60 @@
     document.body.style.overflow = '';
   }
 
-  // Trae todas las efemérides con coordenadas y las pinta como pines.
+  // Pinta las rutas (polylines + pines de ruta) y las efemérides sueltas.
   async function loadMapPoints() {
     mapPointsLoaded = true;
     try {
       const today = todayISO();
-      const res = await apiFetch(
+      const allLatLng = [];          // para encuadrar el mapa al final
+      const onLine = new Set();      // fechas ya representadas en una ruta
+
+      // 1) Rutas (color y nombre) y sus puntos (ordenados por seq). La efeméride
+      //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
+      const [routes, rpts] = await Promise.all([
+        apiFetch('select=id,name,color', false).then(r => r.json()),
+        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title)&order=route_id.asc,seq.asc', false).then(r => r.json())
+      ]);
+      const routeById = {};
+      routes.forEach(r => { routeById[r.id] = r; });
+
+      const byRoute = {};
+      rpts.forEach(p => { (byRoute[p.route_id] = byRoute[p.route_id] || []).push(p); });
+
+      Object.keys(byRoute).forEach(rid => {
+        const pts = byRoute[rid].filter(p => p.lat != null && p.lng != null);
+        // Solo dibujamos rutas que ya han empezado (con alguna efeméride publicada).
+        if (!pts.some(p => p.chronicle)) return;
+        const color = (routeById[rid] && routeById[rid].color) || '#8b2020';
+
+        // Línea de la travesía (todos los puntos, en orden seq)
+        const latlngs = pts.map(p => [p.lat, p.lng]);
+        L.polyline(latlngs, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(exploreMap);
+        allLatLng.push(...latlngs);
+
+        // Pines solo en los puntos con efeméride publicada
+        pts.forEach(p => {
+          if (!p.chronicle) return;
+          onLine.add(p.chronicle.event_date);
+          L.marker([p.lat, p.lng], { icon: sealIcon(color) }).addTo(exploreMap)
+            .bindPopup(pointPopup(p.chronicle.title, p.chronicle.event_date));
+        });
+      });
+
+      // 2) Efemérides con coordenadas que NO están en ninguna línea → aro hueco
+      const loose = await apiFetch(
         `select=event_date,title,lat,lng&active=eq.true&event_date=lte.${today}&lat=not.is.null&limit=5000`,
         false
-      );
-      const points = await res.json();
-      points.forEach((p) => {
-        if (p.lat == null || p.lng == null) return;
-        L.marker([p.lat, p.lng], { icon: placePin() }).addTo(exploreMap).bindPopup(
-          `<strong>${escapeHtml(p.title)}</strong><br>` +
-          `<button class="map-popup-btn" data-date="${escapeHtml(p.event_date)}">Leer</button>`
-        );
+      ).then(r => r.json());
+      loose.forEach(p => {
+        if (p.lat == null || p.lng == null || onLine.has(p.event_date)) return;
+        L.marker([p.lat, p.lng], { icon: standalonePin() }).addTo(exploreMap)
+          .bindPopup(pointPopup(p.title, p.event_date));
+        allLatLng.push([p.lat, p.lng]);
       });
+
+      // 3) Encuadre automático a todo lo dibujado
+      if (allLatLng.length) exploreMap.fitBounds(allLatLng, { padding: [30, 30] });
     } catch (err) {
       mapPointsLoaded = false;   // permite reintentar al reabrir
       console.error('No se pudo cargar el mapa:', err);
