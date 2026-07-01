@@ -22,6 +22,20 @@ class TextSetter {
   element(el) { el.setInnerContent(this.content); }
 }
 
+// Inyecta HTML como contenido del elemento (para el contenido SEO del <body>).
+class HtmlSetter {
+  constructor(html) { this.html = html; }
+  element(el) { el.setInnerContent(this.html, { html: true }); }
+}
+
+// Escapa HTML (la efeméride es contenido propio, pero evitamos que un carácter
+// suelto rompa el marcado que inyectamos).
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export async function onRequest(context) {
   const { request, next, env } = context;
 
@@ -60,6 +74,15 @@ export async function onRequest(context) {
   const fullTitle = `${title} — Hic Sunt Dracones`;
   const desc = String(chron.body || '').replace(/<[^>]*>/g, '').slice(0, 200);
 
+  // Contenido SEO para el <body>: los buscadores (y el render sin JS) ven el
+  // titular y el texto. El JS de la página sobrescribe #content al cargar, así
+  // que para el usuario no hay duplicado. Permitimos solo <em> (como en cliente).
+  const bodyHtml = esc(chron.body || '')
+    .replace(/&lt;em&gt;/g, '<em>').replace(/&lt;\/em&gt;/g, '</em>');
+  const seoContent =
+    `<h1 class="fact-headline">${esc(title)}</h1>` +
+    `<div class="fact-body">${bodyHtml}</div>`;
+
   // HTMLRewriter escapa por nosotros al usar setAttribute / setInnerContent.
   return new HTMLRewriter()
     .on('title', new TextSetter(fullTitle))
@@ -69,5 +92,6 @@ export async function onRequest(context) {
     .on('meta[property="og:url"]', new AttrSetter('content', url.href))
     .on('meta[name="twitter:title"]', new AttrSetter('content', title))
     .on('meta[name="twitter:description"]', new AttrSetter('content', desc))
+    .on('#content', new HtmlSetter(seoContent))
     .transform(response);
 }

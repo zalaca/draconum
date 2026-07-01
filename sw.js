@@ -7,6 +7,8 @@ const ASSETS = [
   '/index.html',
   '/manifest.json',
   '/favicon.png',
+  '/favicon-96.png',
+  '/apple-touch-icon.png',
   '/og.png'
 ];
 
