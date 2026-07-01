@@ -12,6 +12,7 @@
 <title>Hic Sunt Dracones — Un dato de historia cada día</title>
 <meta name="description" content="Hic Sunt Dracones: una efeméride histórica cada día. Donde los mapas terminan, comienza la historia.">
 <meta name="theme-color" content="#2a1f0e">
+<link rel="canonical" href="https://draconum.app/">
 
 <!-- Open Graph / compartir en redes -->
 <meta property="og:type" content="website">
@@ -1282,11 +1283,10 @@
       //    Si pertenecen a una expedición (su categoría = una ruta), las
       //    etiquetamos con esa ruta para que al pulsarlas se pinte igualmente
       //    (p. ej. naufragios fuera del trazado, como la San Lesmes).
-      const loose = await apiFetch(
-        'select=event_date,title,category,lat,lng&active=eq.true&lat=not.is.null&limit=5000',
-        false
-      ).then(r => r.json());
-      loose.forEach(p => {
+      //    Reutilizamos `chronicles` (ya en memoria desde la carga inicial) en
+      //    lugar de volver a descargar todo el archivo: mismo conjunto (activas
+      //    con coordenadas) sin un round-trip extra al abrir el mapa.
+      chronicles.forEach(p => {
         if (p.lat == null || p.lng == null || onLine.has(p.event_date)) return;
         const rid = catInfo[p.category] && catInfo[p.category].id;
         L.marker([p.lat, p.lng], { icon: standalonePin(), routeId: rid }).addTo(exploreMap)
