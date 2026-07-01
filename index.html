@@ -1058,6 +1058,8 @@
   }
 
   let exploreMap, mapPointsLoaded = false;
+  let routeLines = {};      // route_id -> { latlngs, color } (se pinta bajo demanda)
+  let shownRouteLine = null; // la polyline actualmente visible (una a la vez)
 
   async function openMap() {
     if (!window.L) return;   // Leaflet no cargó (¿offline?)
@@ -1077,7 +1079,12 @@
       exploreMap.on('popupopen', (e) => {
         const btn = e.popup.getElement().querySelector('.map-popup-btn');
         if (btn) btn.onclick = () => { closeMap(); openByDate(btn.dataset.date); };
+        // Muestra la ruta del pin pulsado (si pertenece a una).
+        const src = e.popup._source;
+        showRoute(src && src.options.routeId);
       });
+      // Al cerrar el popup, se oculta la ruta.
+      exploreMap.on('popupclose', () => showRoute(null));
     }
     refreshMap(exploreMap);
     if (!mapPointsLoaded) await loadMapPoints();
@@ -1086,6 +1093,18 @@
   function closeMap() {
     document.getElementById('mapModal').hidden = true;
     document.body.style.overflow = '';
+    if (exploreMap) exploreMap.closePopup();   // dispara popupclose → oculta la ruta
+  }
+
+  // Dibuja la ruta indicada (solo una a la vez); con rid nulo, la oculta.
+  function showRoute(rid) {
+    if (shownRouteLine) { exploreMap.removeLayer(shownRouteLine); shownRouteLine = null; }
+    const line = rid != null && routeLines[rid];
+    if (line) {
+      shownRouteLine = L.polyline(line.latlngs, {
+        color: line.color, weight: 2.5, opacity: 0.85, dashArray: '6 6'
+      }).addTo(exploreMap);
+    }
   }
 
   // ---- Índice de categorías ----
@@ -1210,12 +1229,14 @@
     }).join('');
   }
 
-  // Pinta las rutas (polylines + pines de ruta) y las efemérides sueltas.
+  // Pinta los pines (de ruta y sueltos). Las líneas se guardan y solo se
+  // dibujan al pulsar un pin de esa ruta (ver showRoute).
   async function loadMapPoints() {
     mapPointsLoaded = true;
     try {
       const allLatLng = [];          // para encuadrar el mapa al final
       const onLine = new Set();      // fechas ya representadas en una ruta
+      routeLines = {};
 
       // 1) Rutas (color y nombre) y sus puntos (ordenados por seq). La efeméride
       //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
@@ -1235,16 +1256,16 @@
         if (!pts.some(p => p.chronicle)) return;
         const color = (routeById[rid] && routeById[rid].color) || '#8b2020';
 
-        // Línea de la travesía (todos los puntos, en orden seq)
+        // Guardamos la línea de la travesía (se pinta al pulsar un pin suyo).
         const latlngs = pts.map(p => [p.lat, p.lng]);
-        L.polyline(latlngs, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(exploreMap);
+        routeLines[rid] = { latlngs, color };
         allLatLng.push(...latlngs);
 
-        // Pines solo en los puntos con efeméride publicada
+        // Pines solo en los puntos con efeméride publicada (etiquetados con su ruta)
         pts.forEach(p => {
           if (!p.chronicle) return;
           onLine.add(p.chronicle.event_date);
-          L.marker([p.lat, p.lng], { icon: sealIcon(color) }).addTo(exploreMap)
+          L.marker([p.lat, p.lng], { icon: sealIcon(color), routeId: rid }).addTo(exploreMap)
             .bindPopup(pointPopup(p.chronicle.title, p.chronicle.event_date));
         });
       });
