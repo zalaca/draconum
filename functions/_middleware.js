@@ -16,8 +16,10 @@ class AttrSetter {
 }
 
 class TextSetter {
-  constructor(text) { this.text = text; }
-  element(el) { el.setInnerContent(this.text); }
+  // Ojo: NO usar `this.text`; HTMLRewriter interpreta una propiedad `text` en el
+  // handler como el callback de nodos de texto y falla si no es una función.
+  constructor(content) { this.content = content; }
+  element(el) { el.setInnerContent(this.content); }
 }
 
 export async function onRequest(context) {
