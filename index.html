@@ -481,6 +481,87 @@
     color: var(--border-col);
   }
 
+  /* ---- Línea de tiempo ---- */
+  .timeline {
+    flex: 1;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 2.5rem;
+  }
+
+  .tl-node {
+    position: relative;
+    padding-left: 1.5rem;
+    border-left: 2px solid var(--border-col);
+    padding-bottom: 1.4rem;
+  }
+
+  .tl-node:last-child { border-left-color: transparent; }
+
+  .tl-node::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--accent, var(--gold));
+    border: 2px solid #2a1f0e;
+  }
+
+  .tl-range {
+    display: block;
+    font-family: 'Cinzel', serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--gold);
+  }
+
+  .tl-cat {
+    font-family: 'Cinzel', serif;
+    font-size: 0.95rem;
+    color: var(--parchment);
+  }
+
+  .tl-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-top: 0.5rem;
+  }
+
+  .tl-entry {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    text-align: left;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--border-col);
+    font-family: 'EB Garamond', serif;
+    font-size: 0.9rem;
+    padding: 0.28rem 0.4rem;
+    border-radius: 2px;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .tl-entry:hover { background: rgba(255, 255, 255, 0.06); color: var(--parchment); }
+  .tl-entry.active { color: var(--red-wax); font-weight: 500; }
+  .tl-entry:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .tl-entry-date {
+    flex: 0 0 auto;
+    min-width: 6rem;
+    font-style: italic;
+    font-size: 0.78rem;
+    color: var(--border-col);
+    opacity: 0.8;
+  }
+
   /* ---- Mapa ---- */
   .minimap {
     height: 200px;
@@ -672,8 +753,9 @@
 
   <div class="map-launch">
     <button class="map-btn" onclick="openSearch()">✦ Buscar</button>
-    <button class="map-btn" onclick="openIndex()">✦ Índice de categorías</button>
-    <button class="map-btn" onclick="openMap()">✦ Explorar el mapa</button>
+    <button class="map-btn" onclick="openTimeline()">✦ Línea de tiempo</button>
+    <button class="map-btn" onclick="openIndex()">✦ Índice</button>
+    <button class="map-btn" onclick="openMap()">✦ Mapa</button>
   </div>
 
   <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
@@ -710,6 +792,14 @@
     <button class="nav-btn" onclick="closeSearch()" aria-label="Cerrar búsqueda">Cerrar ✕</button>
   </div>
   <div id="searchResults" class="index-grid"></div>
+</div>
+
+<div class="index-modal" id="timelineModal" role="dialog" aria-label="Línea de tiempo" hidden>
+  <div class="map-modal-bar">
+    <span>✦ Línea de tiempo</span>
+    <button class="nav-btn" onclick="closeTimeline()" aria-label="Cerrar línea de tiempo">Cerrar ✕</button>
+  </div>
+  <div id="timeline" class="timeline"></div>
 </div>
 
 <script>
@@ -1010,6 +1100,49 @@
     document.body.style.overflow = '';
   }
 
+  // ---- Línea de tiempo ----
+  function openTimeline() {
+    buildTimeline();
+    document.getElementById('timelineModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+    // Centra la vista en la efeméride activa
+    const active = document.querySelector('#timeline .tl-entry.active');
+    if (active) active.scrollIntoView({ block: 'center' });
+  }
+
+  function closeTimeline() {
+    document.getElementById('timelineModal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  // Timeline vertical: un hito por categoría (orden cronológico) con sus
+  // efemérides debajo, todas clicables.
+  function buildTimeline() {
+    document.getElementById('timeline').innerHTML = categories.map(cat => {
+      const items = byCat[cat];
+      const n = items.length;
+      const first = items[0].date_label || '';
+      const last = items[n - 1].date_label || '';
+      const range = n > 1 && last && last !== first ? `${first} – ${last}` : first;
+      const accent = (catInfo[cat] && catInfo[cat].color) || 'var(--gold)';
+      const start = catStart[cat];
+      const entries = items.map((c, j) => {
+        const gi = start + j;
+        return `<button class="tl-entry${gi === idx ? ' active' : ''}" data-idx="${gi}">
+          <span class="tl-entry-date">${escapeHtml(c.date_label || '')}</span>
+          <span class="tl-entry-title">${escapeHtml(c.title)}</span>
+        </button>`;
+      }).join('');
+      return `<div class="tl-node" style="--accent:${escapeHtml(accent)}">
+        <div class="tl-head">
+          <span class="tl-range">${escapeHtml(range)}</span>
+          <span class="tl-cat">${escapeHtml(cat)}</span>
+        </div>
+        <div class="tl-entries">${entries}</div>
+      </div>`;
+    }).join('');
+  }
+
   // ---- Buscador ----
   // Normaliza para comparar sin distinguir mayúsculas ni acentos.
   function normalize(s) {
@@ -1252,8 +1385,9 @@
     const mapOpen = !document.getElementById('mapModal').hidden;
     const indexOpen = !document.getElementById('indexModal').hidden;
     const searchOpen = !document.getElementById('searchModal').hidden;
-    if (mapOpen || indexOpen || searchOpen) {
-      if (e.key === 'Escape') { closeMap(); closeIndex(); closeSearch(); }
+    const timelineOpen = !document.getElementById('timelineModal').hidden;
+    if (mapOpen || indexOpen || searchOpen || timelineOpen) {
+      if (e.key === 'Escape') { closeMap(); closeIndex(); closeSearch(); closeTimeline(); }
       return;
     }
     if (!chronicles.length) return;
@@ -1289,6 +1423,16 @@
     if (!card) return;
     closeSearch();
     idx = Number(card.dataset.idx);
+    render();
+    focusContent();
+  });
+
+  // Timeline: al pulsar una efeméride, abrirla
+  document.getElementById('timeline').addEventListener('click', (e) => {
+    const el = e.target.closest('.tl-entry');
+    if (!el) return;
+    closeTimeline();
+    idx = Number(el.dataset.idx);
     render();
     focusContent();
   });
