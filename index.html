@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Preconnect: adelanta el handshake con orígenes críticos (fuentes y datos) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cbmzxibsbftrdrbedloj.supabase.co" crossorigin>
+
 <title>Hic Sunt Dracones — Un dato de historia cada día</title>
 <meta name="description" content="Hic Sunt Dracones: una efeméride histórica cada día. Donde los mapas terminan, comienza la historia.">
 <meta name="theme-color" content="#2a1f0e">
@@ -381,14 +387,71 @@
     outline-offset: 2px;
   }
 
-  .streak {
-    text-align: center;
-    margin-top: 0.9rem;
-    min-height: 1em;
+  /* Descripción de la categoría/expedición bajo la fecha */
+  .cat-desc {
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    font-size: 0.92rem;
+    color: var(--ink-muted);
+    margin-bottom: 1.1rem;
+  }
+
+  /* ---- Índice de categorías ---- */
+  .index-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    background: #2a1f0e;
+  }
+
+  .index-modal[hidden] { display: none; }
+
+  .index-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+    align-content: start;
+  }
+
+  .index-card {
+    text-align: left;
+    background: var(--card-bg);
+    border: 1px solid var(--border-col);
+    border-left: 4px solid var(--accent, var(--border-col));
+    border-radius: 2px;
+    padding: 0.9rem 1rem;
+    cursor: pointer;
+    font-family: 'EB Garamond', serif;
+    color: var(--ink-faded);
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+
+  .index-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
+  .index-card.active { outline: 2px solid var(--red-wax); }
+  .index-card:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .index-card-name {
     font-family: 'Cinzel', serif;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    color: var(--gold);
+    font-size: 0.95rem;
+    color: var(--ink);
+    margin-bottom: 0.25rem;
+  }
+
+  .index-card-meta {
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    font-style: italic;
+  }
+
+  .index-card-desc {
+    font-size: 0.82rem;
+    color: var(--ink-faded);
+    margin-top: 0.4rem;
   }
 
   /* ---- Mapa ---- */
@@ -409,7 +472,10 @@
   }
 
   .map-launch {
-    text-align: center;
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
     margin-top: 1rem;
   }
 
@@ -578,6 +644,7 @@
   </div>
 
   <div class="map-launch">
+    <button class="map-btn" onclick="openIndex()">✦ Índice de categorías</button>
     <button class="map-btn" onclick="openMap()">✦ Explorar el mapa</button>
   </div>
 
@@ -601,6 +668,14 @@
   <div id="exploreMap" class="explore-map"></div>
 </div>
 
+<div class="index-modal" id="indexModal" role="dialog" aria-label="Índice de categorías" hidden>
+  <div class="map-modal-bar">
+    <span>✦ Índice de categorías</span>
+    <button class="nav-btn" onclick="closeIndex()" aria-label="Cerrar índice">Cerrar ✕</button>
+  </div>
+  <div id="indexGrid" class="index-grid"></div>
+</div>
+
 <script>
   // ---- CONFIGURACIÓN DE SUPABASE ----
   const SUPABASE_URL = "https://cbmzxibsbftrdrbedloj.supabase.co";
@@ -615,6 +690,7 @@
   let categories = [];   // nombres de categoría, en orden de 1ª aparición (event_date)
   let byCat = {};        // categoría -> array de sus efemérides (event_date asc)
   let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
+  let catInfo = {};      // categoría (= routes.name) -> { color, description }
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
   async function apiFetch(query, withCount, table = 'chronicles') {
@@ -640,14 +716,22 @@
     document.getElementById('content').innerHTML =
       '<div class="state-msg">Desplegando velas...</div>';
     try {
-      // Todo el archivo activo, ordenado por event_date (clave de orden interna).
-      const res = await apiFetch(`select=${COLS}&active=eq.true&order=event_date.asc`, false);
+      // Todo el archivo activo (ordenado por event_date, la clave de orden
+      // interna) + las rutas (para descripción y color de cada categoría).
+      const [res, routes] = await Promise.all([
+        apiFetch(`select=${COLS}&active=eq.true&order=event_date.asc`, false),
+        apiFetch('select=name,color,description', false, 'routes')
+          .then(r => r.json()).catch(() => [])
+      ]);
       const asc = await res.json();
       if (!asc.length) {
         document.getElementById('content').innerHTML =
           '<div class="state-msg">No hay crónicas disponibles todavía.</div>';
         return;
       }
+
+      catInfo = {};
+      routes.forEach(r => { catInfo[r.name] = { color: r.color, description: r.description }; });
 
       // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
       categories = [];
@@ -717,12 +801,14 @@
 
   function render() {
     const c = chronicles[idx];
+    const desc = catInfo[c.category] && catInfo[c.category].description;
 
     document.getElementById('content').innerHTML = `
       <div class="date-row">
         <span class="date-pill">${escapeHtml(c.date_label || formatDate(c.event_date))}</span>
         <span class="category-tag">${escapeHtml(c.category)}</span>
       </div>
+      ${desc ? `<div class="cat-desc">${escapeHtml(desc)}</div>` : ''}
       <div class="fact-headline">${escapeHtml(c.title)}</div>
       <div class="fact-body">${renderBody(c.body)}</div>
       <div class="source-row">
@@ -842,6 +928,39 @@
   function closeMap() {
     document.getElementById('mapModal').hidden = true;
     document.body.style.overflow = '';
+  }
+
+  // ---- Índice de categorías ----
+  function openIndex() {
+    buildIndex();
+    document.getElementById('indexModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeIndex() {
+    document.getElementById('indexModal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  // Grid de categorías (orden cronológico), con conteo, rango y descripción.
+  function buildIndex() {
+    const curCat = chronicles[idx].category;
+    document.getElementById('indexGrid').innerHTML = categories.map(cat => {
+      const items = byCat[cat];
+      const n = items.length;
+      const first = items[0].date_label || '';
+      const last = items[n - 1].date_label || '';
+      const range = n > 1 && last && last !== first ? `${first} – ${last}` : first;
+      const info = catInfo[cat] || {};
+      const accent = info.color || 'var(--border-col)';
+      const desc = info.description
+        ? `<div class="index-card-desc">${escapeHtml(info.description)}</div>` : '';
+      return `<button class="index-card${cat === curCat ? ' active' : ''}" style="--accent:${escapeHtml(accent)}" data-cat="${escapeHtml(cat)}">
+        <div class="index-card-name">${escapeHtml(cat)}</div>
+        <div class="index-card-meta">${n} efeméride${n === 1 ? '' : 's'}${range ? ' · ' + escapeHtml(range) : ''}</div>
+        ${desc}
+      </button>`;
+    }).join('');
   }
 
   // Pinta las rutas (polylines + pines de ruta) y las efemérides sueltas.
@@ -1015,9 +1134,11 @@
 
   // Teclado: flechas (efeméride), Inicio/Fin (1ª/última de la categoría actual)
   document.addEventListener('keydown', (e) => {
-    // Con el mapa abierto, solo escuchamos Escape para cerrarlo.
-    if (!document.getElementById('mapModal').hidden) {
-      if (e.key === 'Escape') closeMap();
+    // Con un modal abierto, solo escuchamos Escape para cerrarlo.
+    const mapOpen = !document.getElementById('mapModal').hidden;
+    const indexOpen = !document.getElementById('indexModal').hidden;
+    if (mapOpen || indexOpen) {
+      if (e.key === 'Escape') { closeMap(); closeIndex(); }
       return;
     }
     if (!chronicles.length) return;
@@ -1038,6 +1159,12 @@
   // Selector de categoría: saltar a su primera efeméride
   document.getElementById('catpick').addEventListener('change', (e) => {
     goToCategory(e.target.value);
+  });
+
+  // Índice: al pulsar una categoría, saltar a su primera efeméride
+  document.getElementById('indexGrid').addEventListener('click', (e) => {
+    const card = e.target.closest('.index-card');
+    if (card) { closeIndex(); goToCategory(card.dataset.cat); }
   });
 
   // Navegación con gestos (swipe) en móvil
