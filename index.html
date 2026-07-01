@@ -454,6 +454,33 @@
     margin-top: 0.4rem;
   }
 
+  /* ---- Buscador ---- */
+  #searchInput {
+    flex: 1;
+    min-width: 0;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-col);
+    border-radius: 2px;
+    color: var(--parchment);
+    font-family: 'EB Garamond', serif;
+    font-size: 1rem;
+    text-transform: none;
+    letter-spacing: normal;
+    padding: 8px 12px;
+    color-scheme: dark;
+  }
+
+  #searchInput:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .search-hint {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 2.5rem 1rem;
+    font-family: 'EB Garamond', serif;
+    font-style: italic;
+    color: var(--border-col);
+  }
+
   /* ---- Mapa ---- */
   .minimap {
     height: 200px;
@@ -644,6 +671,7 @@
   </div>
 
   <div class="map-launch">
+    <button class="map-btn" onclick="openSearch()">✦ Buscar</button>
     <button class="map-btn" onclick="openIndex()">✦ Índice de categorías</button>
     <button class="map-btn" onclick="openMap()">✦ Explorar el mapa</button>
   </div>
@@ -676,6 +704,14 @@
   <div id="indexGrid" class="index-grid"></div>
 </div>
 
+<div class="index-modal" id="searchModal" role="dialog" aria-label="Buscar en el archivo" hidden>
+  <div class="map-modal-bar">
+    <input id="searchInput" type="search" placeholder="Buscar por título, texto o categoría…" aria-label="Buscar en el archivo">
+    <button class="nav-btn" onclick="closeSearch()" aria-label="Cerrar búsqueda">Cerrar ✕</button>
+  </div>
+  <div id="searchResults" class="index-grid"></div>
+</div>
+
 <script>
   // ---- CONFIGURACIÓN DE SUPABASE ----
   const SUPABASE_URL = "https://cbmzxibsbftrdrbedloj.supabase.co";
@@ -690,7 +726,8 @@
   let categories = [];   // nombres de categoría, en orden de 1ª aparición (event_date)
   let byCat = {};        // categoría -> array de sus efemérides (event_date asc)
   let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
-  let catInfo = {};      // categoría (= routes.name) -> { color, description }
+  let catInfo = {};      // categoría (= routes.name) -> { id, color, description }
+  let pointsByRoute = {}; // route_id -> puntos de ruta (ordenados por seq)
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
   async function apiFetch(query, withCount, table = 'chronicles') {
@@ -718,9 +755,11 @@
     try {
       // Todo el archivo activo (ordenado por event_date, la clave de orden
       // interna) + las rutas (para descripción y color de cada categoría).
-      const [res, routes] = await Promise.all([
+      const [res, routes, rpts] = await Promise.all([
         apiFetch(`select=${COLS}&active=eq.true&order=event_date.asc`, false),
-        apiFetch('select=name,color,description', false, 'routes')
+        apiFetch('select=id,name,color,description', false, 'routes')
+          .then(r => r.json()).catch(() => []),
+        apiFetch('select=route_id,seq,lat,lng,chronicle_id&order=route_id.asc,seq.asc', false, 'route_points')
           .then(r => r.json()).catch(() => [])
       ]);
       const asc = await res.json();
@@ -731,7 +770,9 @@
       }
 
       catInfo = {};
-      routes.forEach(r => { catInfo[r.name] = { color: r.color, description: r.description }; });
+      routes.forEach(r => { catInfo[r.name] = { id: r.id, color: r.color, description: r.description }; });
+      pointsByRoute = {};
+      rpts.forEach(p => { (pointsByRoute[p.route_id] = pointsByRoute[p.route_id] || []).push(p); });
 
       // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
       categories = [];
@@ -834,7 +875,7 @@
   }
 
   // ---- Mapa ----
-  let miniMap, miniMarker;
+  let miniMap, miniMarker, miniRoute;
 
   // Recalcula el tamaño del mapa de forma fiable tras mostrar/redimensionar
   // su contenedor (dos frames para que el layout ya esté aplicado).
@@ -874,13 +915,28 @@
            `<button class="map-popup-btn" data-date="${escapeHtml(date)}">Leer</button>`;
   }
 
-  // Muestra/actualiza el mini-mapa con el lugar de la crónica actual.
+  // Muestra el mini-mapa con el lugar de la crónica y, si pertenece a una ruta,
+  // el tramo de la travesía recorrido "hasta aquí" (puntos con seq ≤ actual).
   function updateMiniMap(c) {
     const box = document.getElementById('minimap');
-    if (!box) return;
-    const hasCoords = window.L && c.lat != null && c.lng != null;
-    if (!hasCoords) { box.hidden = true; return; }
+    if (!box || !window.L) { if (box) box.hidden = true; return; }
+
+    const route = catInfo[c.category];
+    const pts = route && route.id != null ? pointsByRoute[route.id] : null;
+    let soFar = null, here = null;
+    if (pts) {
+      const cp = pts.find(p => p.chronicle_id === c.id);
+      if (cp) {
+        here = [cp.lat, cp.lng];
+        soFar = pts.filter(p => p.seq <= cp.seq && p.lat != null && p.lng != null)
+                   .map(p => [p.lat, p.lng]);
+      }
+    }
+    if (!here && c.lat != null && c.lng != null) here = [c.lat, c.lng];
+
+    if (!here) { box.hidden = true; return; }   // sin ubicación ni tramo
     box.hidden = false;
+
     if (!miniMap) {
       miniMap = L.map(box, {
         scrollWheelZoom: false,
@@ -891,11 +947,23 @@
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(miniMap);
     }
-    miniMap.setView([c.lat, c.lng], 5);
-    if (miniMarker) miniMarker.setLatLng([c.lat, c.lng]);
-    else miniMarker = L.marker([c.lat, c.lng], { icon: sealIcon() }).addTo(miniMap);
+
+    // Redibuja el tramo recorrido
+    if (miniRoute) { miniMap.removeLayer(miniRoute); miniRoute = null; }
+    if (soFar && soFar.length > 1) {
+      const color = (route && route.color) || '#8b2020';
+      miniRoute = L.polyline(soFar, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(miniMap);
+    }
+
+    // Marcador "aquí"
+    if (miniMarker) miniMarker.setLatLng(here);
+    else miniMarker = L.marker(here, { icon: sealIcon() }).addTo(miniMap);
     if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
-    // El contenedor estaba oculto: recalculamos el tamaño del mapa.
+
+    // Encuadra al tramo recorrido, o centra en el punto si es único
+    if (soFar && soFar.length > 1) miniMap.fitBounds(soFar, { padding: [20, 20] });
+    else miniMap.setView(here, 5);
+
     refreshMap(miniMap);
   }
 
@@ -940,6 +1008,52 @@
   function closeIndex() {
     document.getElementById('indexModal').hidden = true;
     document.body.style.overflow = '';
+  }
+
+  // ---- Buscador ----
+  // Normaliza para comparar sin distinguir mayúsculas ni acentos.
+  function normalize(s) {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  }
+
+  function openSearch() {
+    document.getElementById('searchModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+    const input = document.getElementById('searchInput');
+    runSearch(input.value);
+    input.focus();
+  }
+
+  function closeSearch() {
+    document.getElementById('searchModal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  // Busca en título, cuerpo y categoría (todo en memoria) y pinta resultados.
+  function runSearch(q) {
+    const query = normalize(q).trim();
+    const box = document.getElementById('searchResults');
+    if (!query) {
+      box.innerHTML = '<div class="search-hint">Escribe para buscar por título, texto o categoría…</div>';
+      return;
+    }
+    const hits = [];
+    for (let i = 0; i < chronicles.length && hits.length < 80; i++) {
+      const c = chronicles[i];
+      if (normalize(c.title + ' ' + c.body + ' ' + c.category).includes(query)) hits.push(i);
+    }
+    if (!hits.length) {
+      box.innerHTML = '<div class="search-hint">Sin resultados para “' + escapeHtml(q) + '”.</div>';
+      return;
+    }
+    box.innerHTML = hits.map(i => {
+      const c = chronicles[i];
+      const accent = (catInfo[c.category] && catInfo[c.category].color) || 'var(--border-col)';
+      return `<button class="index-card" style="--accent:${escapeHtml(accent)}" data-idx="${i}">
+        <div class="index-card-name">${escapeHtml(c.title)}</div>
+        <div class="index-card-meta">${escapeHtml(c.category)}${c.date_label ? ' · ' + escapeHtml(c.date_label) : ''}</div>
+      </button>`;
+    }).join('');
   }
 
   // Grid de categorías (orden cronológico), con conteo, rango y descripción.
@@ -1137,8 +1251,9 @@
     // Con un modal abierto, solo escuchamos Escape para cerrarlo.
     const mapOpen = !document.getElementById('mapModal').hidden;
     const indexOpen = !document.getElementById('indexModal').hidden;
-    if (mapOpen || indexOpen) {
-      if (e.key === 'Escape') { closeMap(); closeIndex(); }
+    const searchOpen = !document.getElementById('searchModal').hidden;
+    if (mapOpen || indexOpen || searchOpen) {
+      if (e.key === 'Escape') { closeMap(); closeIndex(); closeSearch(); }
       return;
     }
     if (!chronicles.length) return;
@@ -1165,6 +1280,17 @@
   document.getElementById('indexGrid').addEventListener('click', (e) => {
     const card = e.target.closest('.index-card');
     if (card) { closeIndex(); goToCategory(card.dataset.cat); }
+  });
+
+  // Buscador: filtra al escribir; al pulsar un resultado, abre esa efeméride
+  document.getElementById('searchInput').addEventListener('input', (e) => runSearch(e.target.value));
+  document.getElementById('searchResults').addEventListener('click', (e) => {
+    const card = e.target.closest('.index-card');
+    if (!card) return;
+    closeSearch();
+    idx = Number(card.dataset.idx);
+    render();
+    focusContent();
   });
 
   // Navegación con gestos (swipe) en móvil
