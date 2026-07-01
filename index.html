@@ -1070,8 +1070,16 @@
       // Sin worldCopyJump: las rutas usan longitudes extendidas (fuera de ±180,
       // p. ej. -383) para cruzar el Pacífico/antimeridiano en línea continua;
       // saltar entre copias del mundo las rompía al hacer pan/zoom.
-      exploreMap = L.map('exploreMap', { fadeAnimation: false })
-        .setView([20, 0], 2);
+      //
+      // maxBounds acota el paneo a la banda donde vive el contenido: los pines
+      // están en ±180, pero las rutas del Pacífico llegan hasta ~-383, así que el
+      // muro oeste se sitúa un poco más allá. Sin esto, al arrastrar en horizontal
+      // se entraba en copias repetidas del mundo, vacías de marcas y rutas.
+      exploreMap = L.map('exploreMap', {
+        fadeAnimation: false,
+        maxBounds: [[-85, -400], [85, 200]],
+        maxBoundsViscosity: 1.0,
+      }).setView([20, 0], 2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(exploreMap);
