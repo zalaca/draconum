@@ -1,9 +1,9 @@
 // Open Graph dinámico para enlaces compartidos.
 //
-// Cuando la URL trae ?d=YYYY-MM-DD, busca esa efeméride en Supabase e inyecta
-// su titular y resumen en las meta-etiquetas del HTML, para que WhatsApp/redes
-// muestren el contenido concreto en lugar del genérico. Sin ?d=, deja pasar el
-// HTML estático tal cual (coste cero para las visitas normales).
+// Cuando la URL trae ?id=N (o el antiguo ?d=YYYY-MM-DD), busca esa efeméride en
+// Supabase e inyecta su titular y resumen en las meta-etiquetas del HTML, para
+// que WhatsApp/redes muestren el contenido concreto en lugar del genérico. Sin
+// parámetro, deja pasar el HTML estático tal cual (coste cero en visitas normales).
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "https://cbmzxibsbftrdrbedloj.supabase.co";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
@@ -20,16 +20,22 @@ export default async (request, context) => {
   const res = await context.next();
 
   const url = new URL(request.url);
-  const d = url.searchParams.get("d");
-  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return res;
+  const idParam = url.searchParams.get("id");
+  const dParam = url.searchParams.get("d");
+
+  // Filtro PostgREST según el parámetro disponible.
+  let filter;
+  if (idParam && /^\d+$/.test(idParam)) filter = `id=eq.${idParam}`;
+  else if (dParam && /^\d{4}-\d{2}-\d{2}$/.test(dParam)) filter = `event_date=eq.${dParam}`;
+  else return res;
 
   const ctype = res.headers.get("content-type") || "";
   if (!ctype.includes("text/html")) return res;
 
-  // Buscamos la crónica exacta de esa fecha (RLS garantiza que no sea futura).
+  // Buscamos la crónica concreta (activa).
   let chron;
   try {
-    const api = `${SUPABASE_URL}/rest/v1/chronicles?select=title,body,event_date&active=eq.true&event_date=eq.${d}&limit=1`;
+    const api = `${SUPABASE_URL}/rest/v1/chronicles?select=title,body&active=eq.true&${filter}&limit=1`;
     const r = await fetch(api, {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
     });

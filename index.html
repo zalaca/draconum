@@ -607,7 +607,7 @@
   const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
   // ------------------------------------
 
-  const COLS = "event_date,date_label,title,body,source,category,lat,lng,place_name";
+  const COLS = "id,event_date,date_label,title,body,source,category,lat,lng,place_name";
   const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
 
   let chronicles = [];   // todas las efemérides, agrupadas por categoría (lista plana)
@@ -664,9 +664,8 @@
 
       setupCategoryPicker();
 
-      // Posición inicial: deep-link ?d=fecha si lo hay; si no, categoría al azar.
-      const fromUrl = new URLSearchParams(location.search).get('d') || location.hash.slice(1);
-      const linkIdx = fromUrl ? chronicles.findIndex(c => c.event_date === fromUrl) : -1;
+      // Posición inicial: deep-link ?id= (o el antiguo ?d=fecha); si no, azar.
+      const linkIdx = deepLinkIdx();
       idx = linkIdx >= 0
         ? linkIdx
         : catStart[categories[Math.floor(Math.random() * categories.length)]];
@@ -925,8 +924,19 @@
   }
 
   function updateUrl() {
-    const ev = chronicles[idx] && chronicles[idx].event_date;
-    if (ev) history.replaceState(null, '', location.pathname + '?d=' + ev);
+    const c = chronicles[idx];
+    if (c && c.id != null) history.replaceState(null, '', location.pathname + '?id=' + c.id);
+  }
+
+  // Resuelve el índice a partir de la URL: ?id= (preferente) o ?d=fecha/#fecha
+  // (compatibilidad con enlaces antiguos). Devuelve -1 si no aplica.
+  function deepLinkIdx() {
+    const params = new URLSearchParams(location.search);
+    const idParam = params.get('id');
+    if (idParam) return chronicles.findIndex(c => String(c.id) === idParam);
+    const dParam = params.get('d') || location.hash.slice(1);
+    if (dParam) return chronicles.findIndex(c => c.event_date === dParam);
+    return -1;
   }
 
   // Tras navegar por acción del usuario, devolvemos el foco a la tarjeta
@@ -977,7 +987,7 @@
   // Compartir: usa el diálogo nativo si existe; si no, copia el enlace.
   async function share() {
     const c = chronicles[idx];
-    const url = location.origin + location.pathname + '?d=' + c.event_date;
+    const url = location.origin + location.pathname + '?id=' + c.id;
     try {
       if (navigator.share) {
         // Solo el enlace: si añadimos `text`, muchas apps comparten el
@@ -1051,8 +1061,7 @@
 
   // Reacciona a atrás/adelante del navegador (o a cambios manuales en la URL)
   window.addEventListener('popstate', () => {
-    const ev = new URLSearchParams(location.search).get('d') || location.hash.slice(1);
-    const i = ev ? chronicles.findIndex(c => c.event_date === ev) : -1;
+    const i = deepLinkIdx();
     if (i >= 0 && i !== idx) { idx = i; render(); }
   });
 
