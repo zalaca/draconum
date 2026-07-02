@@ -710,6 +710,14 @@
   .leaflet-popup-content {
     font-family: 'EB Garamond', serif;
     color: var(--ink-faded);
+    max-height: 55vh;          /* nunca más alto que media pantalla: hace scroll */
+    overflow-y: auto;
+  }
+
+  @media (max-width: 600px) {
+    /* En móvil, popup más bajo para no tapar el mapa (el ancho se limita con
+       la opción maxWidth al crear el marcador) */
+    .leaflet-popup-content { max-height: 42vh; }
   }
 
   .leaflet-popup-content strong { font-family: 'Cinzel', serif; color: var(--ink); }
@@ -1295,8 +1303,10 @@
   // Añade un marcador replicado en las copias contiguas del mundo. Devuelve las
   // marcas creadas (para poder filtrarlas por año).
   function addWorldMarker(lat, lng, icon, routeId, popupHtml) {
+    // maxWidth ajustado a la pantalla: en móvil el popup no se come el ancho.
+    const opts = { maxWidth: Math.min(300, Math.round(window.innerWidth * 0.74)) };
     return WORLD_COPIES.map(off =>
-      L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml));
+      L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml, opts));
   }
 
   // Año (numérico) de un event_date 'YYYY-MM-DD'.
