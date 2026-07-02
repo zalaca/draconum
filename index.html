@@ -1060,8 +1060,53 @@
   }
 
   let exploreMap, mapPointsLoaded = false;
-  let routeLines = {};      // route_id -> { latlngs, color } (se pinta bajo demanda)
+  let routeLines = {};      // route_id -> { paths, color } (se pinta bajo demanda)
   let shownRouteLine = null; // la polyline actualmente visible (una a la vez)
+
+  // Normaliza una longitud (posiblemente extendida, p. ej. -383) al rango ±180.
+  function normLng(lng) { return lng - Math.round(lng / 360) * 360; }
+
+  // Copias del mundo a cada lado. worldCopyJump solo reengancha el centro de la
+  // vista, no rellena la copia contigua: si no replicamos las marcas/rutas, al
+  // arrastrar media pantalla queda vacía. Con el centro acotado a la copia
+  // central por worldCopyJump, basta con ±1 copia.
+  const WORLD_COPIES = [-360, 0, 360];
+
+  // Añade un marcador replicado en las copias contiguas del mundo.
+  function addWorldMarker(lat, lng, icon, routeId, popupHtml) {
+    WORLD_COPIES.forEach(off => {
+      L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml);
+    });
+  }
+
+  // Parte una polilínea en tramos que no crucen el antimeridiano, para que se
+  // dibuje bien en el mapa envolvente. Donde dos puntos consecutivos saltan más
+  // de 180° (cruce del ±180), corta el tramo interpolando la latitud en el borde
+  // y lo continúa por el borde opuesto. Devuelve un array de tramos (multilínea).
+  function splitAtAntimeridian(pts) {
+    const paths = [];
+    let cur = [], prev = null;
+    for (const [lat, rawLng] of pts) {
+      const nlng = normLng(rawLng);
+      if (!prev) { cur = [[lat, nlng]]; prev = [lat, nlng]; continue; }
+      const [plat, plng] = prev;
+      const d = nlng - plng;
+      if (Math.abs(d) > 180) {                     // cruza el antimeridiano
+        const unwrapped = d > 0 ? nlng - 360 : nlng + 360;
+        const boundary = unwrapped < 0 ? -180 : 180;
+        const t = (boundary - plng) / (unwrapped - plng);
+        const latCross = plat + t * (lat - plat);
+        cur.push([latCross, boundary]);
+        paths.push(cur);
+        cur = [[latCross, -boundary], [lat, nlng]];
+      } else {
+        cur.push([lat, nlng]);
+      }
+      prev = [lat, nlng];
+    }
+    if (cur.length) paths.push(cur);
+    return paths;
+  }
 
   async function openMap() {
     if (!window.L) return;   // Leaflet no cargó (¿offline?)
@@ -1069,19 +1114,13 @@
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
     if (!exploreMap) {
-      // Sin worldCopyJump: las rutas usan longitudes extendidas (fuera de ±180,
-      // p. ej. -383) para cruzar el Pacífico/antimeridiano en línea continua;
-      // saltar entre copias del mundo las rompía al hacer pan/zoom.
-      //
-      // maxBounds acota el paneo a la banda donde vive el contenido: los pines
-      // están en ±180, pero las rutas del Pacífico llegan hasta ~-383, así que el
-      // muro oeste se sitúa un poco más allá. Sin esto, al arrastrar en horizontal
-      // se entraba en copias repetidas del mundo, vacías de marcas y rutas.
-      exploreMap = L.map('exploreMap', {
-        fadeAnimation: false,
-        maxBounds: [[-85, -400], [85, 200]],
-        maxBoundsViscosity: 1.0,
-      }).setView([20, 0], 2);
+      // Mapa envolvente (worldCopyJump): al arrastrar a otra "copia" del mundo,
+      // Leaflet salta a la original para que marcas y rutas sigan visibles.
+      // Para que funcione, TODO se normaliza a ±180 (los datos traen longitudes
+      // extendidas, p. ej. -383, para las travesías del Pacífico) y las rutas se
+      // parten en el antimeridiano (ver normLng / splitAtAntimeridian).
+      exploreMap = L.map('exploreMap', { fadeAnimation: false, worldCopyJump: true })
+        .setView([20, 0], 2);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(exploreMap);
@@ -1111,7 +1150,11 @@
     if (shownRouteLine) { exploreMap.removeLayer(shownRouteLine); shownRouteLine = null; }
     const line = rid != null && routeLines[rid];
     if (line) {
-      shownRouteLine = L.polyline(line.latlngs, {
+      // Replicamos cada tramo en las copias contiguas (igual que las marcas).
+      const multi = [];
+      line.paths.forEach(seg => WORLD_COPIES.forEach(off =>
+        multi.push(seg.map(([la, ln]) => [la, ln + off]))));
+      shownRouteLine = L.polyline(multi, {
         color: line.color, weight: 2.5, opacity: 0.85, dashArray: '6 6'
       }).addTo(exploreMap);
     }
@@ -1266,17 +1309,19 @@
         if (!pts.some(p => p.chronicle)) return;
         const color = (routeById[rid] && routeById[rid].color) || '#8b2020';
 
-        // Guardamos la línea de la travesía (se pinta al pulsar un pin suyo).
-        const latlngs = pts.map(p => [p.lat, p.lng]);
-        routeLines[rid] = { latlngs, color };
-        allLatLng.push(...latlngs);
+        // Guardamos la travesía ya partida en el antimeridiano y normalizada a
+        // ±180 (se pinta al pulsar un pin suyo).
+        const paths = splitAtAntimeridian(pts.map(p => [p.lat, p.lng]));
+        routeLines[rid] = { paths, color };
+        paths.forEach(seg => allLatLng.push(...seg));
 
-        // Pines solo en los puntos con efeméride publicada (etiquetados con su ruta)
+        // Pines solo en los puntos con efeméride publicada (etiquetados con su
+        // ruta); normalizamos la longitud para que caigan en la copia principal.
         pts.forEach(p => {
           if (!p.chronicle) return;
           onLine.add(p.chronicle.event_date);
-          L.marker([p.lat, p.lng], { icon: sealIcon(color), routeId: rid }).addTo(exploreMap)
-            .bindPopup(pointPopup(p.chronicle.title, p.chronicle.event_date));
+          addWorldMarker(p.lat, normLng(p.lng), sealIcon(color), rid,
+                         pointPopup(p.chronicle.title, p.chronicle.event_date));
         });
       });
 
@@ -1290,9 +1335,9 @@
       chronicles.forEach(p => {
         if (p.lat == null || p.lng == null || onLine.has(p.event_date)) return;
         const rid = catInfo[p.category] && catInfo[p.category].id;
-        L.marker([p.lat, p.lng], { icon: standalonePin(), routeId: rid }).addTo(exploreMap)
-          .bindPopup(pointPopup(p.title, p.event_date));
-        allLatLng.push([p.lat, p.lng]);
+        const lng = normLng(p.lng);
+        addWorldMarker(p.lat, lng, standalonePin(), rid, pointPopup(p.title, p.event_date));
+        allLatLng.push([p.lat, lng]);
       });
 
       // 3) Encuadre automático a todo lo dibujado
