@@ -687,6 +687,12 @@
 
   .leaflet-container a.leaflet-popup-close-button { color: var(--ink-muted); }
 
+  /* Popup con varias efemérides en el mismo punto */
+  .map-popup-head { display: block; margin-bottom: 6px; }
+  .map-popup-item { padding: 6px 0; }
+  .map-popup-item + .map-popup-item { border-top: 1px solid var(--border-col); }
+  .map-popup-item span { display: block; margin-bottom: 4px; }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -1007,6 +1013,16 @@
            `<button class="map-popup-btn" data-date="${escapeHtml(date)}">Leer</button>`;
   }
 
+  // Popup para un punto donde coinciden varias efemérides: las lista todas, cada
+  // una con su botón, para que ninguna quede tapada e inaccesible.
+  function multiPointPopup(entries) {
+    return `<strong class="map-popup-head">${entries.length} efemérides aquí</strong>` +
+      entries.map(en =>
+        `<div class="map-popup-item"><span>${escapeHtml(en.title)}</span>` +
+        `<button class="map-popup-btn" data-date="${escapeHtml(en.date)}">Leer</button></div>`
+      ).join('');
+  }
+
   // Muestra el mini-mapa con el lugar de la crónica y, si pertenece a una ruta,
   // el tramo de la travesía recorrido "hasta aquí" (puntos con seq ≤ actual).
   function updateMiniMap(c) {
@@ -1124,10 +1140,12 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(exploreMap);
-      // Al pulsar "Leer" en un pin, abrimos esa efeméride.
+      // Al pulsar "Leer" abrimos esa efeméride. El popup puede listar varias
+      // (cuando coinciden en el mismo punto), así que cableamos todos los botones.
       exploreMap.on('popupopen', (e) => {
-        const btn = e.popup.getElement().querySelector('.map-popup-btn');
-        if (btn) btn.onclick = () => { closeMap(); openByDate(btn.dataset.date); };
+        e.popup.getElement().querySelectorAll('.map-popup-btn').forEach(btn => {
+          btn.onclick = () => { closeMap(); openByDate(btn.dataset.date); };
+        });
         // Muestra la ruta del pin pulsado (si pertenece a una).
         const src = e.popup._source;
         showRoute(src && src.options.routeId);
@@ -1291,6 +1309,17 @@
       const onLine = new Set();      // fechas ya representadas en una ruta
       routeLines = {};
 
+      // Agrupamos las efemérides por coordenada exacta: si varias caen en el
+      // mismo punto (p. ej. Canarias), luego se dibuja UN marcador cuyo popup las
+      // lista todas, para que ninguna quede tapada e inaccesible.
+      const bySpot = new Map();
+      const addSpot = (lat, lng, title, date, routeId, icon) => {
+        const key = lat.toFixed(4) + ',' + lng.toFixed(4);
+        let spot = bySpot.get(key);
+        if (!spot) { spot = { lat, lng, icon, routeId, entries: [] }; bySpot.set(key, spot); allLatLng.push([lat, lng]); }
+        spot.entries.push({ title, date });
+      };
+
       // 1) Rutas (color y nombre) y sus puntos (ordenados por seq). La efeméride
       //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
       const [routes, rpts] = await Promise.all([
@@ -1320,8 +1349,7 @@
         pts.forEach(p => {
           if (!p.chronicle) return;
           onLine.add(p.chronicle.event_date);
-          addWorldMarker(p.lat, normLng(p.lng), sealIcon(color), rid,
-                         pointPopup(p.chronicle.title, p.chronicle.event_date));
+          addSpot(p.lat, normLng(p.lng), p.chronicle.title, p.chronicle.event_date, rid, sealIcon(color));
         });
       });
 
@@ -1335,12 +1363,19 @@
       chronicles.forEach(p => {
         if (p.lat == null || p.lng == null || onLine.has(p.event_date)) return;
         const rid = catInfo[p.category] && catInfo[p.category].id;
-        const lng = normLng(p.lng);
-        addWorldMarker(p.lat, lng, standalonePin(), rid, pointPopup(p.title, p.event_date));
-        allLatLng.push([p.lat, lng]);
+        addSpot(p.lat, normLng(p.lng), p.title, p.event_date, rid, standalonePin());
       });
 
-      // 3) Encuadre automático a todo lo dibujado
+      // 3) Un marcador por coordenada: popup simple si hay una sola efeméride, o
+      //    combinado (lista) si coinciden varias en el mismo punto.
+      bySpot.forEach(spot => {
+        const html = spot.entries.length === 1
+          ? pointPopup(spot.entries[0].title, spot.entries[0].date)
+          : multiPointPopup(spot.entries);
+        addWorldMarker(spot.lat, spot.lng, spot.icon, spot.routeId, html);
+      });
+
+      // 4) Encuadre automático a todo lo dibujado
       if (allLatLng.length) exploreMap.fitBounds(allLatLng, { padding: [30, 30] });
     } catch (err) {
       mapPointsLoaded = false;   // permite reintentar al reabrir
