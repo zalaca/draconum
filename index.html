@@ -196,6 +196,35 @@
     font-style: italic;
   }
 
+  /* "Mientras tanto…": qué más ocurría por esas fechas */
+  .meanwhile {
+    margin-top: 1.4rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-col);
+  }
+  .meanwhile-head {
+    font-family: 'Cinzel', serif;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 0.55rem;
+  }
+  .meanwhile-list { list-style: none; display: flex; flex-direction: column; gap: 0.2rem; }
+  .meanwhile-item {
+    display: flex; align-items: baseline; gap: 0.7rem; width: 100%;
+    background: none; border: 0; padding: 0.35rem 0.3rem; border-radius: 2px;
+    font-family: 'EB Garamond', serif; text-align: left; color: var(--ink-faded);
+    cursor: pointer; transition: background 0.12s, color 0.12s;
+  }
+  .meanwhile-item:hover { background: rgba(100, 70, 30, 0.08); color: var(--ink); }
+  .meanwhile-item:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .meanwhile-year {
+    font-family: 'Cinzel', serif; font-size: 0.82rem; color: var(--gold);
+    flex: 0 0 auto; min-width: 2.8em;
+  }
+  .meanwhile-title { font-size: 0.95rem; line-height: 1.3; }
+
   .source-row {
     display: flex;
     align-items: center;
@@ -1062,9 +1091,34 @@
       .replace(/&lt;\/em&gt;/g, '</em>');
   }
 
+  // "Mientras tanto…": hasta 3 efemérides de años cercanos, de OTRAS categorías
+  // (para dar contexto de qué más pasaba en el mundo). Prioriza cercanía temporal
+  // y variedad de categorías. Vacío para la Antigüedad (slot año 1, sin fecha real).
+  function meanwhileItems(c) {
+    const year = yearOf(c.event_date);
+    if (!year || year < 500) return [];
+    const WINDOW = 40;
+    const cands = chronicles
+      .map((o, i) => ({ o, i, y: yearOf(o.event_date) }))
+      .filter(x => x.i !== idx && x.y >= 500 && Math.abs(x.y - year) <= WINDOW && x.o.category !== c.category)
+      .sort((a, b) => Math.abs(a.y - year) - Math.abs(b.y - year));
+    const out = [], cats = new Set();
+    for (const x of cands) {                 // 1ª pasada: categorías distintas
+      if (cats.has(x.o.category)) continue;
+      cats.add(x.o.category); out.push(x);
+      if (out.length === 3) return out;
+    }
+    for (const x of cands) {                  // 2ª pasada: rellena si faltan
+      if (!out.includes(x)) out.push(x);
+      if (out.length === 3) break;
+    }
+    return out;
+  }
+
   function render() {
     const c = chronicles[idx];
     const desc = catInfo[c.category] && catInfo[c.category].description;
+    const meanwhile = meanwhileItems(c);
 
     document.getElementById('content').innerHTML = `
       <div class="date-row">
@@ -1074,6 +1128,16 @@
       ${desc ? `<div class="cat-desc">${escapeHtml(desc)}</div>` : ''}
       <div class="fact-headline">${escapeHtml(c.title)}</div>
       <div class="fact-body">${renderBody(c.body)}</div>
+      ${meanwhile.length ? `
+      <div class="meanwhile">
+        <div class="meanwhile-head">Mientras tanto…</div>
+        <ul class="meanwhile-list">
+          ${meanwhile.map(x => `<li><button class="meanwhile-item" onclick="goTo(${x.i})">
+            <span class="meanwhile-year">${yearOf(x.o.event_date)}</span>
+            <span class="meanwhile-title">${escapeHtml(x.o.title)}</span>
+          </button></li>`).join('')}
+        </ul>
+      </div>` : ''}
       <div class="source-row">
         <span class="source-label">${escapeHtml(c.source)}</span>
         <div class="nav-row">
