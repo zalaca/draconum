@@ -758,6 +758,44 @@
     .map-overview-btn { padding: 4px 8px; font-size: 0.72rem; }
   }
 
+  /* Barra de tiempo: deslizador doble de años (abajo del mapa) */
+  .map-timebar {
+    padding: 10px 16px 12px; border-top: 1px solid var(--border-col);
+    background: #2a1f0e; color: var(--parchment);
+  }
+  .map-timebar[hidden] { display: none; }
+  .map-timeslider { position: relative; height: 30px; }
+  .map-timeslider-track, .map-timeslider-range {
+    position: absolute; top: 50%; height: 4px; transform: translateY(-50%); border-radius: 2px;
+  }
+  .map-timeslider-track { left: 0; right: 0; background: var(--ink-faded); }
+  .map-timeslider-range { background: var(--gold); }
+  .map-timeslider input[type="range"] {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0;
+    -webkit-appearance: none; appearance: none; background: none; pointer-events: none;
+  }
+  .map-timeslider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; pointer-events: auto; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--card-bg); border: 2px solid var(--red-wax);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: pointer;
+  }
+  .map-timeslider input[type="range"]::-moz-range-thumb {
+    pointer-events: auto; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--card-bg); border: 2px solid var(--red-wax);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); cursor: pointer;
+  }
+  .map-timeslider input[type="range"]::-moz-range-track { background: none; }
+  .map-timebar-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 4px; font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 0.05em;
+  }
+  .map-time-reset {
+    background: var(--card-bg); border: 1px solid var(--border-col); border-radius: 2px;
+    color: var(--ink); font-family: 'Cinzel', serif; font-size: 0.72rem;
+    padding: 4px 10px; cursor: pointer;
+  }
+  .map-time-reset:hover { background: var(--parchment); }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -849,6 +887,18 @@
     <button class="nav-btn" onclick="closeMap()" aria-label="Cerrar mapa">Cerrar ✕</button>
   </div>
   <div id="exploreMap" class="explore-map"></div>
+  <div class="map-timebar" id="mapTimebar" hidden>
+    <div class="map-timeslider" id="timeSlider">
+      <div class="map-timeslider-track"></div>
+      <div class="map-timeslider-range" id="timeRangeFill"></div>
+      <input type="range" id="timeMin" aria-label="Año desde">
+      <input type="range" id="timeMax" aria-label="Año hasta">
+    </div>
+    <div class="map-timebar-foot">
+      <span class="map-time-label" id="timeLabel">Todas las épocas</span>
+      <button class="map-time-reset" id="timeReset" type="button">Todo</button>
+    </div>
+  </div>
 </div>
 
 <div class="index-modal" id="indexModal" role="dialog" aria-label="Índice de categorías" hidden>
@@ -1147,6 +1197,8 @@
   let currentHighlight = null; // halo de la efeméride que estabas leyendo
   let mapAllBounds = null;   // encuadre de todo el contenido (botón "Vista general")
   let routeMeta = {};        // route_id -> { name, color } para la leyenda
+  let timeSpots = [];        // [{ years:[...], markers:[...] }] por ubicación, para filtrar por año
+  let timeDomainMin = 1000, timeDomainMax = 2016; // extremos del deslizador de tiempo
 
   // Normaliza una longitud (posiblemente extendida, p. ej. -383) al rango ±180.
   function normLng(lng) { return lng - Math.round(lng / 360) * 360; }
@@ -1157,12 +1209,15 @@
   // central por worldCopyJump, basta con ±1 copia.
   const WORLD_COPIES = [-360, 0, 360];
 
-  // Añade un marcador replicado en las copias contiguas del mundo.
+  // Añade un marcador replicado en las copias contiguas del mundo. Devuelve las
+  // marcas creadas (para poder filtrarlas por año).
   function addWorldMarker(lat, lng, icon, routeId, popupHtml) {
-    WORLD_COPIES.forEach(off => {
-      L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml);
-    });
+    return WORLD_COPIES.map(off =>
+      L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml));
   }
+
+  // Año (numérico) de un event_date 'YYYY-MM-DD'.
+  function yearOf(dateStr) { return parseInt(String(dateStr).slice(0, 4), 10) || 0; }
 
   // Parte una polilínea en tramos que no crucen el antimeridiano, para que se
   // dibuje bien en el mapa envolvente. Donde dos puntos consecutivos saltan más
@@ -1340,6 +1395,56 @@
       return b;
     };
     overview.addTo(exploreMap);
+  }
+
+  // Muestra/oculta los pines según el rango de años [lo, hi]. Los de la
+  // Antigüedad (año < timeDomainMin) se anclan al mínimo del eje. Devuelve
+  // cuántas efemérides quedan visibles.
+  function applyTimeFilter(lo, hi) {
+    let shown = 0;
+    timeSpots.forEach(s => {
+      let visible = false;
+      s.years.forEach(y => {
+        const ey = y < timeDomainMin ? timeDomainMin : y;
+        if (ey >= lo && ey <= hi) { visible = true; shown++; }
+      });
+      s.markers.forEach(m => { if (m._icon) m._icon.style.display = visible ? '' : 'none'; });
+    });
+    return shown;
+  }
+
+  // Cablea el deslizador doble de años (barra inferior del mapa).
+  function buildTimeFilter() {
+    const bar = document.getElementById('mapTimebar');
+    const minI = document.getElementById('timeMin');
+    const maxI = document.getElementById('timeMax');
+    const fill = document.getElementById('timeRangeFill');
+    const label = document.getElementById('timeLabel');
+    const reset = document.getElementById('timeReset');
+    if (!bar || timeDomainMax <= timeDomainMin) return;
+
+    [minI, maxI].forEach(i => { i.min = timeDomainMin; i.max = timeDomainMax; i.step = 1; });
+    minI.value = timeDomainMin; maxI.value = timeDomainMax;
+    const span = timeDomainMax - timeDomainMin;
+
+    function update(which) {
+      let lo = +minI.value, hi = +maxI.value;
+      if (lo > hi) {                       // impide que las manijas se crucen
+        if (which === 'min') { lo = hi; minI.value = lo; } else { hi = lo; maxI.value = hi; }
+      }
+      fill.style.left = ((lo - timeDomainMin) / span * 100) + '%';
+      fill.style.right = ((timeDomainMax - hi) / span * 100) + '%';
+      const shown = applyTimeFilter(lo, hi);
+      label.textContent = (lo === timeDomainMin && hi === timeDomainMax)
+        ? `Todas las épocas · ${shown}`
+        : `${lo} – ${hi} · ${shown} efeméride${shown === 1 ? '' : 's'}`;
+    }
+    minI.oninput = () => update('min');
+    maxI.oninput = () => update('max');
+    reset.onclick = () => { minI.value = timeDomainMin; maxI.value = timeDomainMax; update(); };
+
+    bar.hidden = false;
+    update();
   }
 
   // ---- Índice de categorías ----
@@ -1533,18 +1638,28 @@
       });
 
       // 3) Un marcador por coordenada: popup simple si hay una sola efeméride, o
-      //    combinado (lista) si coinciden varias en el mismo punto.
+      //    combinado (lista) si coinciden varias en el mismo punto. Guardamos las
+      //    marcas y los años de cada punto para el filtro temporal.
+      timeSpots = [];
       bySpot.forEach(spot => {
         const html = spot.entries.length === 1
           ? pointPopup(spot.entries[0].title, spot.entries[0].date)
           : multiPointPopup(spot.entries);
-        addWorldMarker(spot.lat, spot.lng, spot.icon, spot.routeId, html);
+        const markers = addWorldMarker(spot.lat, spot.lng, spot.icon, spot.routeId, html);
+        timeSpots.push({ years: spot.entries.map(e => yearOf(e.date)), markers });
       });
 
-      // 4) Guardamos el encuadre global (botón "Vista general") y creamos los
+      // 4) Extremos del deslizador de tiempo: min/max de años reales (ignorando
+      //    los 9 de la Antigüedad, en el slot año 1, que se anclan al mínimo).
+      const realYears = timeSpots.flatMap(s => s.years).filter(y => y > 500);
+      timeDomainMin = realYears.length ? Math.min(...realYears) : 1000;
+      timeDomainMax = realYears.length ? Math.max(...realYears) : 2016;
+
+      // 5) Guardamos el encuadre global (botón "Vista general") y creamos los
       //    controles. El encuadre inicial lo hace focusCurrentOnMap al abrir.
       mapAllBounds = allLatLng.length ? L.latLngBounds(allLatLng) : null;
       buildMapControls();
+      buildTimeFilter();
     } catch (err) {
       mapPointsLoaded = false;   // permite reintentar al reabrir
       console.error('No se pudo cargar el mapa:', err);
