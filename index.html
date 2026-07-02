@@ -714,13 +714,30 @@
     padding: 8px 10px; max-width: 220px; max-height: 45vh; overflow-y: auto;
     font-family: 'EB Garamond', serif; color: var(--ink);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    transition: max-height 0.3s ease-out;
   }
-  .map-legend-title { font-family: 'Cinzel', serif; font-size: 0.82rem; margin-bottom: 6px; }
+  .map-legend-title {
+    font-family: 'Cinzel', serif; font-size: 0.82rem; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .map-legend-toggle { display: none; background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink-muted); font-size: 1.2rem; line-height: 1; }
   .map-legend-item {
     display: flex; align-items: center; gap: 7px; width: 100%;
     background: none; border: 0; padding: 4px 5px; border-radius: 2px;
     font: inherit; color: inherit; text-align: left; cursor: pointer;
   }
+
+  @media (max-width: 600px) {
+    .map-legend { max-width: 170px; max-height: 35px; overflow: hidden; padding: 5px 10px; }
+    .map-legend.expanded { max-height: 60vh; overflow-y: auto; }
+    .map-legend-title { margin-bottom: 0; cursor: pointer; font-size: 0.85rem; }
+    .map-legend.expanded .map-legend-title { margin-bottom: 6px; }
+    .map-legend-toggle { display: block; transition: transform 0.3s; }
+    .map-legend.expanded .map-legend-toggle { transform: rotate(180deg); }
+    .map-legend-note { display: none; }
+    .map-legend.expanded .map-legend-note { display: block; }
+  }
+
   .map-legend-item:hover { background: rgba(0, 0, 0, 0.06); }
   .map-legend-item.active { background: rgba(139, 32, 32, 0.14); }
   .map-legend-swatch {
@@ -736,6 +753,10 @@
     cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   }
   .map-overview-btn:hover { background: var(--parchment); }
+
+  @media (max-width: 600px) {
+    .map-overview-btn { padding: 4px 8px; font-size: 0.72rem; }
+  }
 
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
@@ -1269,7 +1290,10 @@
       const legend = L.control({ position: 'topright' });
       legend.onAdd = () => {
         const div = L.DomUtil.create('div', 'map-legend');
-        div.innerHTML = '<div class="map-legend-title">Expediciones</div>' +
+        div.innerHTML = `<div class="map-legend-title">
+            <span>Expediciones</span>
+            <button class="map-legend-toggle" aria-label="Ver leyenda">▾</button>
+          </div>` +
           rids.map(rid => {
             const m = routeMeta[rid] || {};
             return `<button class="map-legend-item" data-rid="${escapeHtml(rid)}">` +
@@ -1278,6 +1302,14 @@
           }).join('') +
           '<div class="map-legend-note">Pulsa para trazar la ruta</div>';
         L.DomEvent.disableClickPropagation(div);
+
+        const title = div.querySelector('.map-legend-title');
+        title.addEventListener('click', () => {
+          if (window.innerWidth <= 600) {
+            div.classList.toggle('expanded');
+          }
+        });
+
         div.querySelectorAll('.map-legend-item').forEach(btn => {
           btn.addEventListener('click', () => {
             const rid = btn.dataset.rid;
