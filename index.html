@@ -923,6 +923,17 @@
   }
   .map-time-reset:hover { background: var(--parchment); }
 
+  /* Etiquetas de época bajo el slider (escala por tramos) */
+  .map-timeticks {
+    display: flex; margin-top: 3px;
+    font-family: 'Fraunces', serif; font-size: 0.6rem; letter-spacing: 0.04em;
+    color: var(--parchment); opacity: 0.55;
+  }
+  .map-timeticks span {
+    flex: 1; text-align: center; border-left: 1px solid rgba(236, 224, 198, 0.18);
+  }
+  .map-timeticks span:first-child { border-left: 0; }
+
   /* Foco visible y de marca para navegación con teclado */
   .nav-btn:focus-visible,
   .today-btn:focus-visible,
@@ -1032,6 +1043,7 @@
       <input type="range" id="timeMin" aria-label="Año desde">
       <input type="range" id="timeMax" aria-label="Año hasta">
     </div>
+    <div class="map-timeticks" id="timeTicks" aria-hidden="true"></div>
     <div class="map-timebar-foot">
       <span class="map-time-label" id="timeLabel">Todas las épocas</span>
       <button class="map-time-reset" id="timeReset" type="button">Todo</button>
@@ -1745,7 +1757,22 @@
   // Etiqueta de año: negativo → "a.C.".
   function fmtYear(y) { return y < 0 ? Math.abs(y) + ' a.C.' : String(y); }
 
-  // Cablea el deslizador doble de años (barra inferior del mapa).
+  // Escala por TRAMOS de época: cada época ocupa un espacio parecido en el
+  // slider (más resolución en los siglos con más contenido, poco espacio para la
+  // Antigüedad, que apenas tiene efemérides). El usuario ve la época bajo la
+  // manija; por dentro convertimos posición (0–1000) → año.
+  const TIME_SEGMENTS = [
+    { y0: -1750, y1: 476,  label: 'Ant.' },
+    { y0: 476,   y1: 1450, label: 'Med.' },
+    { y0: 1450,  y1: 1600, label: 'XVI' },
+    { y0: 1600,  y1: 1700, label: 'XVII' },
+    { y0: 1700,  y1: 1800, label: 'XVIII' },
+    { y0: 1800,  y1: 1900, label: 'XIX' },
+    { y0: 1900,  y1: 2026, label: 'XX' },
+  ];
+  const TIME_POS = 1000;
+
+  // Cablea el deslizador doble de épocas (barra inferior del mapa).
   function buildTimeFilter() {
     const bar = document.getElementById('mapTimebar');
     const minI = document.getElementById('timeMin');
@@ -1753,27 +1780,40 @@
     const fill = document.getElementById('timeRangeFill');
     const label = document.getElementById('timeLabel');
     const reset = document.getElementById('timeReset');
+    const ticks = document.getElementById('timeTicks');
     if (!bar || timeDomainMax <= timeDomainMin) return;
 
-    [minI, maxI].forEach(i => { i.min = timeDomainMin; i.max = timeDomainMax; i.step = 1; });
-    minI.value = timeDomainMin; maxI.value = timeDomainMax;
-    const span = timeDomainMax - timeDomainMin;
+    // Ajusta los extremos de la escala al rango real de datos.
+    const segs = TIME_SEGMENTS.map(s => ({ ...s }));
+    segs[0].y0 = timeDomainMin;
+    segs[segs.length - 1].y1 = timeDomainMax;
+    const N = segs.length;
+    const posToYear = (pos) => {
+      const x = Math.max(0, Math.min(TIME_POS, pos)) / TIME_POS * N;
+      const i = Math.min(N - 1, Math.floor(x));
+      return Math.round(segs[i].y0 + (x - i) * (segs[i].y1 - segs[i].y0));
+    };
+
+    [minI, maxI].forEach(i => { i.min = 0; i.max = TIME_POS; i.step = 1; });
+    minI.value = 0; maxI.value = TIME_POS;
+    if (ticks) ticks.innerHTML = segs.map(s => `<span>${s.label}</span>`).join('');
 
     function update(which) {
-      let lo = +minI.value, hi = +maxI.value;
-      if (lo > hi) {                       // impide que las manijas se crucen
-        if (which === 'min') { lo = hi; minI.value = lo; } else { hi = lo; maxI.value = hi; }
+      let loP = +minI.value, hiP = +maxI.value;
+      if (loP > hiP) {                       // impide que las manijas se crucen
+        if (which === 'min') { loP = hiP; minI.value = loP; } else { hiP = loP; maxI.value = hiP; }
       }
-      fill.style.left = ((lo - timeDomainMin) / span * 100) + '%';
-      fill.style.right = ((timeDomainMax - hi) / span * 100) + '%';
-      const shown = applyTimeFilter(lo, hi);
-      label.textContent = (lo === timeDomainMin && hi === timeDomainMax)
+      fill.style.left = (loP / TIME_POS * 100) + '%';
+      fill.style.right = ((TIME_POS - hiP) / TIME_POS * 100) + '%';
+      const loY = posToYear(loP), hiY = posToYear(hiP);
+      const shown = applyTimeFilter(loY, hiY);
+      label.textContent = (loP === 0 && hiP === TIME_POS)
         ? `Todas las épocas · ${shown}`
-        : `${fmtYear(lo)} – ${fmtYear(hi)} · ${shown} efeméride${shown === 1 ? '' : 's'}`;
+        : `${fmtYear(loY)} – ${fmtYear(hiY)} · ${shown} efeméride${shown === 1 ? '' : 's'}`;
     }
     minI.oninput = () => update('min');
     maxI.oninput = () => update('max');
-    reset.onclick = () => { minI.value = timeDomainMin; maxI.value = timeDomainMax; update(); };
+    reset.onclick = () => { minI.value = 0; maxI.value = TIME_POS; update(); };
 
     bar.hidden = false;
     update();
