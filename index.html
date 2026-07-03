@@ -340,11 +340,11 @@
   }
 
   .progress-bar {
-    margin-top: 1.5rem;
+    margin-top: 1.1rem;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
   }
 
   .dots-track {
@@ -358,16 +358,15 @@
     font-family: 'Fraunces', serif;
     font-size: 0.7rem;
     letter-spacing: 0.1em;
-    color: var(--border-col);
-    opacity: 0.75;
+    color: var(--ink-muted);
   }
 
   .progress-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--border-col);
-    opacity: 0.4;
+    background: var(--ink-muted);
+    opacity: 0.35;
     transition: opacity 0.2s;
     cursor: pointer;
     border: none;
@@ -1004,6 +1003,7 @@
     <div id="content" aria-live="polite" aria-atomic="true" tabindex="-1">
       <div class="state-msg">Desplegando velas...</div>
     </div>
+    <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
     <div id="minimap" class="minimap" aria-label="Mapa del lugar del suceso" hidden></div>
     <div id="mapEmpty" class="map-empty" hidden aria-hidden="true">
       <img src="/draco-mark.png" alt="" width="116" height="116" class="map-empty-mark">
@@ -1017,8 +1017,6 @@
     <button class="map-btn" onclick="openTimeline()">✶ Línea de tiempo</button>
     <button class="map-btn" onclick="openMap()">✶ Mapa</button>
   </div>
-
-  <nav class="progress-bar" id="dots" aria-label="Navegación de crónicas"></nav>
 
   <div class="date-jump">
     <label for="catpick" class="date-jump-label">Saltar a una categoría</label>
