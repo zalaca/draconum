@@ -1061,6 +1061,7 @@
   let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
   let catInfo = {};      // categoría (= routes.name) -> { id, color, description }
   let pointsByRoute = {}; // route_id -> puntos de ruta (ordenados por seq)
+  let catRoute = {};      // categoría -> { id, color } de su ruta (por enlace real)
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
   async function apiFetch(query, withCount, table = 'chronicles') {
@@ -1106,6 +1107,19 @@
       routes.forEach(r => { catInfo[r.name] = { id: r.id, color: r.color, description: r.description }; });
       pointsByRoute = {};
       rpts.forEach(p => { (pointsByRoute[p.route_id] = pointsByRoute[p.route_id] || []).push(p); });
+
+      // Enlace categoría → ruta por los datos reales (route_point → crónica →
+      // categoría). El nombre de la ruta no siempre coincide con el de la
+      // categoría (p. ej. ruta "El Titanic" en "El hundimiento del Titanic").
+      catRoute = {};
+      const chrCat = {};
+      asc.forEach(c => { chrCat[c.id] = c.category; });
+      const routeColorById = {};
+      routes.forEach(r => { routeColorById[r.id] = r.color; });
+      rpts.forEach(p => {
+        const cat = chrCat[p.chronicle_id];
+        if (cat && !catRoute[cat]) catRoute[cat] = { id: p.route_id, color: routeColorById[p.route_id] };
+      });
 
       // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
       categories = [];
@@ -1332,7 +1346,7 @@
     if (empty) empty.hidden = true;
 
     // Móvil/tablet: mini-mapa del lugar + tramo recorrido "hasta aquí".
-    const route = catInfo[c.category];
+    const route = catRoute[c.category] || catInfo[c.category];
     const pts = route && route.id != null ? pointsByRoute[route.id] : null;
     let soFar = null, here = null;   // soFar = array de tramos normalizados
     if (pts) {
@@ -1377,7 +1391,7 @@
   // (si es expedición), con la efeméride actual resaltada. Sin coordenadas en
   // toda la serie → estado "sin mapa" (Hic sunt dracones).
   function renderCategoryMap(c, box, empty) {
-    const info = catInfo[c.category];
+    const info = catRoute[c.category] || catInfo[c.category];
     const color = (info && info.color) || '#7c332e';
     const items = (byCat[c.category] || []).filter(x => x.lat != null && x.lng != null);
     const routePts = (info && info.id != null && pointsByRoute[info.id])
