@@ -1114,12 +1114,16 @@
       catRoute = {};
       const chrCat = {};
       asc.forEach(c => { chrCat[c.id] = c.category; });
-      const routeColorById = {};
-      routes.forEach(r => { routeColorById[r.id] = r.color; });
+      const routeById = {};
+      routes.forEach(r => { routeById[r.id] = r; });
       rpts.forEach(p => {
-        const cat = chrCat[p.chronicle_id];
-        if (cat && !catRoute[cat]) catRoute[cat] = { id: p.route_id, color: routeColorById[p.route_id] };
+        const cat = chrCat[p.chronicle_id], r = routeById[p.route_id];
+        if (cat && r && !catRoute[cat]) catRoute[cat] = { id: r.id, color: r.color, description: r.description };
       });
+      // Exponemos la ruta también por categoría en catInfo (color, descripción,
+      // id), para que todo —índice, timeline, pines, descripción— la encuentre
+      // aunque el nombre de la ruta no coincida con el de la categoría.
+      Object.keys(catRoute).forEach(cat => { if (!catInfo[cat]) catInfo[cat] = catRoute[cat]; });
 
       // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
       categories = [];
