@@ -223,6 +223,9 @@
     color: var(--leather);
   }
 
+  /* #content recibe foco por JS (tabindex -1) al navegar; sin contorno azul. */
+  #content:focus { outline: none; }
+
   /* "Mientras tanto…": qué más ocurría por esas fechas */
   .meanwhile {
     margin-top: 1.4rem;
@@ -637,6 +640,38 @@
     filter: sepia(0.6) saturate(0.85) contrast(0.95) brightness(1.02);
   }
 
+  /* Estado "sin mapa" (categoría sin coordenadas): solo en escritorio */
+  .map-empty { display: none; }
+  .map-empty-mark { width: 116px; height: auto; opacity: 0.5; }
+  .map-empty-text {
+    font-family: 'Fraunces', serif; font-style: italic;
+    color: var(--gold); font-size: 1.15rem; letter-spacing: 0.02em;
+  }
+  .map-empty-sub {
+    font-family: 'Spectral', serif; color: var(--border-col);
+    font-size: 0.92rem; max-width: 24ch; line-height: 1.5;
+  }
+
+  /* ── Escritorio grande: disposición de atlas ──
+     Izquierda: lectura (scroll propio). Derecha: mapa de la categoría (fijo). */
+  @media (min-width: 1100px) {
+    body { display: block; padding: 0; height: 100vh; overflow: hidden; }
+    .wrapper {
+      width: min(55vw, 760px); max-width: none; height: 100vh;
+      overflow-y: auto; margin: 0; padding: 2.5rem clamp(1.5rem, 3vw, 3rem);
+    }
+    .minimap, .map-empty {
+      position: fixed; top: 0; right: 0; left: min(55vw, 760px);
+      width: auto; height: 100vh; margin: 0;
+      border: 0; border-left: 4px solid var(--leather-deep); border-radius: 0; z-index: 5;
+    }
+    .map-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.5rem; text-align: center; padding: 2rem; background: #2b1c15;
+    }
+    .map-empty[hidden] { display: none; }
+  }
+
   .map-launch {
     display: flex;
     justify-content: center;
@@ -940,6 +975,11 @@
       <div class="state-msg">Desplegando velas...</div>
     </div>
     <div id="minimap" class="minimap" aria-label="Mapa del lugar del suceso" hidden></div>
+    <div id="mapEmpty" class="map-empty" hidden aria-hidden="true">
+      <img src="/draco-mark.png" alt="" width="116" height="116" class="map-empty-mark">
+      <p class="map-empty-text">Hic sunt dracones</p>
+      <p class="map-empty-sub">Esta serie no está anclada a un lugar del mapa</p>
+    </div>
   </div>
 
   <div class="map-launch">
@@ -1203,7 +1243,24 @@
   }
 
   // ---- Mapa ----
-  let miniMap, miniMarker, miniRoute;
+  let miniMap, miniMarker, miniRoute, catLayer, catMapKey = null;
+
+  // Escritorio grande → disposición de atlas (mapa de la categoría a la derecha).
+  const atlasMedia = window.matchMedia('(min-width: 1100px)');
+  const atlasActive = () => atlasMedia.matches;
+
+  // Crea el mini-mapa (una sola vez) en el contenedor dado. worldCopyJump para
+  // que las rutas transpacíficas no se "corten" (igual que el mapa grande).
+  function ensureMiniMap(box) {
+    if (miniMap) return;
+    miniMap = L.map(box, {
+      scrollWheelZoom: false, attributionControl: true, fadeAnimation: false,
+      worldCopyJump: true, minZoom: 2,
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: '&copy; OpenStreetMap'
+    }).addTo(miniMap);
+  }
 
   // Recalcula el tamaño del mapa de forma fiable tras mostrar/redimensionar
   // su contenedor (dos frames para que el layout ya esté aplicado).
@@ -1267,40 +1324,41 @@
   // el tramo de la travesía recorrido "hasta aquí" (puntos con seq ≤ actual).
   function updateMiniMap(c) {
     const box = document.getElementById('minimap');
+    const empty = document.getElementById('mapEmpty');
     if (!box || !window.L) { if (box) box.hidden = true; return; }
 
+    // Escritorio grande: mapa de toda la categoría (o estado "sin mapa").
+    if (atlasActive()) { renderCategoryMap(c, box, empty); return; }
+    if (empty) empty.hidden = true;
+
+    // Móvil/tablet: mini-mapa del lugar + tramo recorrido "hasta aquí".
     const route = catInfo[c.category];
     const pts = route && route.id != null ? pointsByRoute[route.id] : null;
-    let soFar = null, here = null;
+    let soFar = null, here = null;   // soFar = array de tramos normalizados
     if (pts) {
       const cp = pts.find(p => p.chronicle_id === c.id);
       if (cp) {
-        here = [cp.lat, cp.lng];
-        soFar = pts.filter(p => p.seq <= cp.seq && p.lat != null && p.lng != null)
-                   .map(p => [p.lat, p.lng]);
+        here = [cp.lat, normLng(cp.lng)];
+        const raw = pts.filter(p => p.seq <= cp.seq && p.lat != null && p.lng != null).map(p => [p.lat, p.lng]);
+        if (raw.length > 1) soFar = splitAtAntimeridian(raw);
       }
     }
-    if (!here && c.lat != null && c.lng != null) here = [c.lat, c.lng];
+    if (!here && c.lat != null && c.lng != null) here = [c.lat, normLng(c.lng)];
 
     if (!here) { box.hidden = true; return; }   // sin ubicación ni tramo
     box.hidden = false;
 
-    if (!miniMap) {
-      miniMap = L.map(box, {
-        scrollWheelZoom: false,
-        attributionControl: true,
-        fadeAnimation: false   // evita parpadeo/desaparición de teselas
-      });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18, attribution: '&copy; OpenStreetMap'
-      }).addTo(miniMap);
-    }
+    ensureMiniMap(box);
+    miniMap.scrollWheelZoom.disable();
+    if (catLayer) { miniMap.removeLayer(catLayer); catLayer = null; }
 
-    // Redibuja el tramo recorrido
+    // Tramo recorrido (normalizado, partido y replicado en las copias del mundo)
     if (miniRoute) { miniMap.removeLayer(miniRoute); miniRoute = null; }
-    if (soFar && soFar.length > 1) {
-      const color = (route && route.color) || '#8b2020';
-      miniRoute = L.polyline(soFar, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(miniMap);
+    if (soFar) {
+      const color = (route && route.color) || '#7c332e';
+      const multi = [];
+      soFar.forEach(seg => WORLD_COPIES.forEach(off => multi.push(seg.map(([la, ln]) => [la, ln + off]))));
+      miniRoute = L.polyline(multi, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(miniMap);
     }
 
     // Marcador "aquí"
@@ -1308,12 +1366,91 @@
     else miniMarker = L.marker(here, { icon: sealIcon() }).addTo(miniMap);
     if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
 
-    // Encuadra al tramo recorrido, o centra en el punto si es único
-    if (soFar && soFar.length > 1) miniMap.fitBounds(soFar, { padding: [20, 20] });
+    // Encuadra al tramo recorrido (copia central), o centra en el punto si es único
+    if (soFar) miniMap.fitBounds(soFar.flat(), { padding: [20, 20] });
     else miniMap.setView(here, 5);
 
     refreshMap(miniMap);
   }
+
+  // Escritorio: mapa de la categoría actual — todos sus pines + la ruta completa
+  // (si es expedición), con la efeméride actual resaltada. Sin coordenadas en
+  // toda la serie → estado "sin mapa" (Hic sunt dracones).
+  function renderCategoryMap(c, box, empty) {
+    const info = catInfo[c.category];
+    const color = (info && info.color) || '#7c332e';
+    const items = (byCat[c.category] || []).filter(x => x.lat != null && x.lng != null);
+    const routePts = (info && info.id != null && pointsByRoute[info.id])
+      ? pointsByRoute[info.id].filter(p => p.lat != null && p.lng != null) : null;
+
+    if (!items.length && !(routePts && routePts.length)) {
+      box.hidden = true;
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    box.hidden = false;
+
+    ensureMiniMap(box);
+    miniMap.scrollWheelZoom.enable();
+    if (miniRoute) { miniMap.removeLayer(miniRoute); miniRoute = null; }
+    if (miniMarker) { miniMap.removeLayer(miniMarker); miniMarker = null; }
+
+    // Construimos la capa nueva completa antes de quitar la anterior: así los
+    // pines no desaparecen ni un frame al navegar dentro de la misma serie.
+    const prevLayer = catLayer;
+    const layer = L.layerGroup();
+    const bounds = [];
+
+    // Ruta completa (normalizada, partida en el antimeridiano y replicada en las
+    // copias contiguas del mundo para que no se "corte" al cruzar el Pacífico).
+    if (routePts && routePts.length > 1) {
+      const paths = splitAtAntimeridian(routePts.map(p => [p.lat, p.lng]));
+      const multi = [];
+      paths.forEach(seg => WORLD_COPIES.forEach(off =>
+        multi.push(seg.map(([la, ln]) => [la, ln + off]))));
+      L.polyline(multi, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(layer);
+      paths.forEach(seg => seg.forEach(pt => bounds.push(pt)));   // encuadre = copia central
+    }
+
+    // Halo sobre la efeméride actual (replicado en las copias)
+    if (c.lat != null && c.lng != null) {
+      const hlat = c.lat, hlng = normLng(c.lng);
+      WORLD_COPIES.forEach(off => L.marker([hlat, hlng + off], {
+        icon: L.divIcon({ className: 'map-current', html: '<span></span>', iconSize: [24, 24], iconAnchor: [12, 12] }),
+        interactive: false, keyboard: false, zIndexOffset: -1000,
+      }).addTo(layer));
+    }
+
+    // Pines de la categoría (replicados): actual = sello lleno; resto = aro hueco.
+    items.forEach(x => {
+      const lat = x.lat, lng = normLng(x.lng);
+      const icon = x.id === c.id ? sealIcon(color) : standalonePin();
+      WORLD_COPIES.forEach(off =>
+        L.marker([lat, lng + off], { icon }).addTo(layer)
+          .bindPopup(`<span class="map-popup-title">${escapeHtml(x.title || '')}</span>`));
+      bounds.push([lat, lng]);
+    });
+
+    layer.addTo(miniMap);
+    if (prevLayer) miniMap.removeLayer(prevLayer);
+    catLayer = layer;
+
+    // Solo reencuadra al cambiar de serie (no en cada evento de la misma).
+    if (catMapKey !== c.category) {
+      if (bounds.length > 1) miniMap.fitBounds(bounds, { padding: [34, 34] });
+      else if (bounds.length === 1) miniMap.setView(bounds[0], 5);
+    }
+    catMapKey = c.category;
+    refreshMap(miniMap);
+  }
+
+  // Al cruzar el umbral de escritorio, re-renderiza el mapa del evento actual.
+  atlasMedia.addEventListener('change', () => {
+    catMapKey = null;   // fuerza reencuadre tras cambiar de disposición
+    if (chronicles.length) updateMiniMap(chronicles[idx]);
+    if (miniMap) setTimeout(() => miniMap.invalidateSize(), 80);
+  });
 
   let exploreMap, mapPointsLoaded = false;
   let routeLines = {};      // route_id -> { paths, color } (se pinta bajo demanda)
