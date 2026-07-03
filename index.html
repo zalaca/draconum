@@ -1062,7 +1062,7 @@
   const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
   // ------------------------------------
 
-  const COLS = "id,event_date,date_label,title,body,source,category,lat,lng,place_name";
+  const COLS = "id,event_date,date_label,title,body,source,category,lat,lng,place_name,historical_year";
   const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
 
   let chronicles = [];   // todas las efemérides, agrupadas por categoría (lista plana)
@@ -1204,14 +1204,14 @@
 
   // "Mientras tanto…": hasta 3 efemérides de años cercanos, de OTRAS categorías
   // (para dar contexto de qué más pasaba en el mundo). Prioriza cercanía temporal
-  // y variedad de categorías. Vacío para la Antigüedad (slot año 1, sin fecha real).
+  // y variedad de categorías. Usa historical_year (año histórico real).
   function meanwhileItems(c) {
-    const year = yearOf(c.event_date);
-    if (!year || year < 500) return [];
+    const year = c.historical_year;
+    if (year == null) return [];
     const WINDOW = 40;
     const cands = chronicles
-      .map((o, i) => ({ o, i, y: yearOf(o.event_date) }))
-      .filter(x => x.i !== idx && x.y >= 500 && Math.abs(x.y - year) <= WINDOW && x.o.category !== c.category)
+      .map((o, i) => ({ o, i, y: o.historical_year }))
+      .filter(x => x.i !== idx && x.y != null && Math.abs(x.y - year) <= WINDOW && x.o.category !== c.category)
       .sort((a, b) => Math.abs(a.y - year) - Math.abs(b.y - year));
     const out = [], cats = new Set();
     for (const x of cands) {                 // 1ª pasada: categorías distintas
@@ -1244,7 +1244,7 @@
         <div class="meanwhile-head">Mientras tanto…</div>
         <ul class="meanwhile-list">
           ${meanwhile.map(x => `<li><button class="meanwhile-item" onclick="goTo(${x.i})">
-            <span class="meanwhile-year">${yearOf(x.o.event_date)}</span>
+            <span class="meanwhile-year">${fmtYear(x.o.historical_year)}</span>
             <span class="meanwhile-title">${escapeHtml(x.o.title)}</span>
           </button></li>`).join('')}
         </ul>
@@ -1510,9 +1510,6 @@
       L.marker([lat, lng + off], { icon, routeId }).addTo(exploreMap).bindPopup(popupHtml, opts));
   }
 
-  // Año (numérico) de un event_date 'YYYY-MM-DD'.
-  function yearOf(dateStr) { return parseInt(String(dateStr).slice(0, 4), 10) || 0; }
-
   // Parte una polilínea en tramos que no crucen el antimeridiano, para que se
   // dibuje bien en el mapa envolvente. Donde dos puntos consecutivos saltan más
   // de 180° (cruce del ±180), corta el tramo interpolando la latitud en el borde
@@ -1731,21 +1728,22 @@
     search.addTo(exploreMap);
   }
 
-  // Muestra/oculta los pines según el rango de años [lo, hi]. Los de la
-  // Antigüedad (año < timeDomainMin) se anclan al mínimo del eje. Devuelve
-  // cuántas efemérides quedan visibles.
+  // Muestra/oculta los pines según el rango de años [lo, hi] (historical_year).
+  // Devuelve cuántas efemérides quedan visibles.
   function applyTimeFilter(lo, hi) {
     let shown = 0;
     timeSpots.forEach(s => {
       let visible = false;
       s.years.forEach(y => {
-        const ey = y < timeDomainMin ? timeDomainMin : y;
-        if (ey >= lo && ey <= hi) { visible = true; shown++; }
+        if (y != null && y >= lo && y <= hi) { visible = true; shown++; }
       });
       s.markers.forEach(m => { if (m._icon) m._icon.style.display = visible ? '' : 'none'; });
     });
     return shown;
   }
+
+  // Etiqueta de año: negativo → "a.C.".
+  function fmtYear(y) { return y < 0 ? Math.abs(y) + ' a.C.' : String(y); }
 
   // Cablea el deslizador doble de años (barra inferior del mapa).
   function buildTimeFilter() {
@@ -1771,7 +1769,7 @@
       const shown = applyTimeFilter(lo, hi);
       label.textContent = (lo === timeDomainMin && hi === timeDomainMax)
         ? `Todas las épocas · ${shown}`
-        : `${lo} – ${hi} · ${shown} efeméride${shown === 1 ? '' : 's'}`;
+        : `${fmtYear(lo)} – ${fmtYear(hi)} · ${shown} efeméride${shown === 1 ? '' : 's'}`;
     }
     minI.oninput = () => update('min');
     maxI.oninput = () => update('max');
@@ -1884,18 +1882,18 @@
       // mismo punto (p. ej. Canarias), luego se dibuja UN marcador cuyo popup las
       // lista todas, para que ninguna quede tapada e inaccesible.
       const bySpot = new Map();
-      const addSpot = (lat, lng, title, date, routeId, icon, category, color) => {
+      const addSpot = (lat, lng, title, date, routeId, icon, category, color, year) => {
         const key = lat.toFixed(4) + ',' + lng.toFixed(4);
         let spot = bySpot.get(key);
         if (!spot) { spot = { lat, lng, icon, routeId, entries: [] }; bySpot.set(key, spot); allLatLng.push([lat, lng]); }
-        spot.entries.push({ title, date, category, color });
+        spot.entries.push({ title, date, category, color, year });
       };
 
       // 1) Rutas (color y nombre) y sus puntos (ordenados por seq). La efeméride
       //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
       const [routes, rpts] = await Promise.all([
         apiFetch('select=id,name,color', false, 'routes').then(r => r.json()),
-        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title,category)&order=route_id.asc,seq.asc', false, 'route_points').then(r => r.json())
+        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title,category,historical_year)&order=route_id.asc,seq.asc', false, 'route_points').then(r => r.json())
       ]);
       const routeById = {};
       routes.forEach(r => { routeById[r.id] = r; });
@@ -1921,7 +1919,7 @@
         pts.forEach(p => {
           if (!p.chronicle) return;
           onLine.add(p.chronicle.event_date);
-          addSpot(p.lat, normLng(p.lng), p.chronicle.title, p.chronicle.event_date, rid, sealIcon(color), p.chronicle.category, color);
+          addSpot(p.lat, normLng(p.lng), p.chronicle.title, p.chronicle.event_date, rid, sealIcon(color), p.chronicle.category, color, p.chronicle.historical_year);
         });
       });
 
@@ -1936,7 +1934,7 @@
         if (p.lat == null || p.lng == null || onLine.has(p.event_date)) return;
         const info = catInfo[p.category];
         const rid = info && info.id;
-        addSpot(p.lat, normLng(p.lng), p.title, p.event_date, rid, standalonePin(), p.category, info && info.color);
+        addSpot(p.lat, normLng(p.lng), p.title, p.event_date, rid, standalonePin(), p.category, info && info.color, p.historical_year);
       });
 
       // 3) Un marcador por coordenada: popup simple si hay una sola efeméride, o
@@ -1949,15 +1947,15 @@
           ? pointPopup(spot.entries[0])
           : multiPointPopup(spot.entries);
         const markers = addWorldMarker(spot.lat, spot.lng, spot.icon, spot.routeId, html);
-        timeSpots.push({ years: spot.entries.map(e => yearOf(e.date)), markers });
+        timeSpots.push({ years: spot.entries.map(e => e.year), markers });
         spot.entries.forEach(e => { markerByDate[e.date] = markers[1]; }); // markers[1] = copia central
       });
 
-      // 4) Extremos del deslizador de tiempo: min/max de años reales (ignorando
-      //    los 9 de la Antigüedad, en el slot año 1, que se anclan al mínimo).
-      const realYears = timeSpots.flatMap(s => s.years).filter(y => y > 500);
-      timeDomainMin = realYears.length ? Math.min(...realYears) : 1000;
-      timeDomainMax = realYears.length ? Math.max(...realYears) : 2016;
+      // 4) Extremos del deslizador de tiempo: min/max de historical_year (año
+      //    histórico real de cada efeméride; negativo = a.C.).
+      const allYears = timeSpots.flatMap(s => s.years).filter(y => y != null);
+      timeDomainMin = allYears.length ? Math.min(...allYears) : -1750;
+      timeDomainMax = allYears.length ? Math.max(...allYears) : 2026;
 
       // 5) Guardamos el encuadre global (botón "Vista general") y creamos los
       //    controles. El encuadre inicial lo hace focusCurrentOnMap al abrir.
