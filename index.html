@@ -77,21 +77,21 @@
 
   .masthead {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.25rem;
   }
 
   .brand-mark {
     display: block;
-    width: 92px;
+    width: 62px;
     height: auto;
-    margin: 0 auto 0.4rem;
+    margin: 0 auto 0.25rem;
   }
 
   .masthead-rule {
     display: flex;
     align-items: center;
     gap: 1rem;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.45rem;
   }
 
   .masthead-rule::before,
@@ -107,11 +107,11 @@
     line-height: 0;
     display: inline-flex;
   }
-  .compass svg { width: 30px; height: 30px; }
+  .compass svg { width: 24px; height: 24px; }
 
   .title {
     font-family: 'Fraunces', serif;
-    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-size: clamp(1.2rem, 3.4vw, 1.65rem);
     font-weight: 600;
     color: var(--parchment);
     letter-spacing: 0.12em;
@@ -122,8 +122,8 @@
     font-family: 'Spectral', serif;
     font-style: italic;
     color: var(--border-col);
-    font-size: 0.95rem;
-    margin-top: 0.3rem;
+    font-size: 0.88rem;
+    margin-top: 0.2rem;
   }
 
   .card {
@@ -2165,25 +2165,6 @@
     idx = Number(el.dataset.idx);
     render();
     focusContent();
-  });
-
-  // Navegación con gestos (swipe) en móvil
-  let touchX = null;
-  const cardEl = document.getElementById('card');
-  cardEl.addEventListener('touchstart', (e) => {
-    // Ignoramos gestos sobre el mini-mapa (pan/zoom) y los multitáctiles (pinch),
-    // para no confundirlos con un swipe de navegación.
-    if (e.touches.length > 1 || (e.target.closest && e.target.closest('.minimap'))) {
-      touchX = null;
-      return;
-    }
-    touchX = e.changedTouches[0].clientX;
-  }, { passive: true });
-  cardEl.addEventListener('touchend', (e) => {
-    if (touchX === null) return;
-    const dx = e.changedTouches[0].clientX - touchX;
-    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
-    touchX = null;
   });
 
   // Reacciona a atrás/adelante del navegador (o a cambios manuales en la URL)
