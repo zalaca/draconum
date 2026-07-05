@@ -126,6 +126,35 @@
     margin-top: 0.2rem;
   }
 
+  /* "Un día como hoy": banner de aniversarios sobre la tarjeta */
+  .onthisday {
+    background: linear-gradient(180deg, rgba(157,124,64,0.14), rgba(124,51,46,0.10));
+    border: 1px solid var(--gold);
+    border-radius: 2px;
+    padding: 0.7rem 1rem 0.8rem;
+    margin-bottom: 1.1rem;
+  }
+  .onthisday[hidden] { display: none; }
+  .onthisday-head {
+    font-family: 'Fraunces', serif; font-size: 0.72rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 0.5rem;
+  }
+  .onthisday-star { color: var(--gold); }
+  .onthisday-list { list-style: none; display: flex; flex-direction: column; gap: 0.15rem; }
+  .onthisday-item {
+    display: flex; align-items: baseline; gap: 0.7rem; width: 100%;
+    background: none; border: 0; padding: 0.35rem 0.3rem; border-radius: 2px;
+    font-family: 'Spectral', serif; text-align: left; color: var(--parchment);
+    cursor: pointer; transition: background 0.12s;
+  }
+  .onthisday-item:hover { background: rgba(236,224,198,0.08); }
+  .onthisday-item:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .onthisday-year {
+    font-family: 'Fraunces', serif; font-size: 0.82rem; color: var(--gold);
+    flex: 0 0 auto; min-width: 3.4em;
+  }
+  .onthisday-title { font-size: 0.95rem; line-height: 1.3; color: var(--parchment); }
+
   .card {
     background-color: var(--card-bg);
     /* Grano de papel muy tenue + veladuras cálidas (nada que moleste al leer) */
@@ -995,6 +1024,8 @@
     <div class="subtitle">Donde los mapas terminan, comienza la historia</div>
   </div>
 
+  <div class="onthisday" id="onThisDay" hidden></div>
+
   <div class="card" id="card">
     <div class="corner corner-tl"></div>
     <div class="corner corner-tr"></div>
@@ -1160,6 +1191,7 @@
       categories.forEach(cat => { catStart[cat] = chronicles.length; chronicles.push(...byCat[cat]); });
 
       setupCategoryPicker();
+      buildOnThisDay();
 
       // Posición inicial: deep-link ?id= (o el antiguo ?d=fecha); si no, azar.
       const linkIdx = deepLinkIdx();
@@ -1176,6 +1208,40 @@
         '<br><button class="nav-btn" style="margin-top:1rem" onclick="loadChronicles()">Reintentar</button></div>';
       console.error(err);
     }
+  }
+
+  // "Un día como hoy": banner con las efemérides cuyo aniversario (mes-día real)
+  // cae hoy. Solo cuenta las de fecha EXACTA conocida (date_label del tipo
+  // "12 de octubre de 1492"); las que solo tienen año/época se ignoran, porque
+  // su mes-día en event_date es sintético. Si no hay ninguna, no se muestra.
+  function hasExactDay(c) {
+    return /\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+/i.test(c.date_label || '');
+  }
+
+  function buildOnThisDay(today = new Date()) {
+    const box = document.getElementById('onThisDay');
+    if (!box) return;
+    const md = `-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const hits = chronicles
+      .filter(c => hasExactDay(c) && String(c.event_date).slice(4) === md)
+      .sort((a, b) => (a.historical_year ?? 0) - (b.historical_year ?? 0));
+
+    if (!hits.length) { box.hidden = true; box.innerHTML = ''; return; }
+
+    const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const hoy = `${today.getDate()} de ${meses[today.getMonth()]}`;
+    box.innerHTML =
+      `<div class="onthisday-head"><span class="onthisday-star">✶</span> Un día como hoy · ${hoy}</div>` +
+      `<ul class="onthisday-list">` +
+      hits.map(c => `<li><button class="onthisday-item" data-date="${escapeHtml(c.event_date)}">
+        <span class="onthisday-year">${fmtYear(c.historical_year)}</span>
+        <span class="onthisday-title">${escapeHtml(c.title)}</span>
+      </button></li>`).join('') +
+      `</ul>`;
+    box.querySelectorAll('.onthisday-item').forEach(btn => {
+      btn.addEventListener('click', () => { openByDate(btn.dataset.date); focusContent(); });
+    });
+    box.hidden = false;
   }
 
   // Rellena el desplegable de categorías (orden alfabético para buscar rápido).
