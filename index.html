@@ -747,18 +747,6 @@
 
   .explore-map { flex: 1; }
 
-  .map-popup-btn {
-    margin-top: 6px;
-    background: var(--red-wax);
-    color: var(--parchment);
-    border: none;
-    border-radius: 2px;
-    padding: 4px 12px;
-    font-family: 'Spectral', serif;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
   /* Pin estilo sello de lacre. El <span> interno es el círculo visible;
      los pines de ruta colorean el fondo en línea con el color de su ruta. */
   .map-pin span {
@@ -794,32 +782,43 @@
   .leaflet-popup-content {
     font-family: 'Spectral', serif;
     color: var(--ink-faded);
-    max-height: 55vh;          /* nunca más alto que media pantalla: hace scroll */
+    max-height: 38vh;          /* compacto: si hay muchas efemérides, hace scroll */
     overflow-y: auto;
+    margin: 10px 12px;
   }
 
   @media (max-width: 600px) {
-    /* En móvil, popup más bajo para no tapar el mapa (el ancho se limita con
-       la opción maxWidth al crear el marcador) */
-    .leaflet-popup-content { max-height: 42vh; }
+    .leaflet-popup-content { max-height: 34vh; }
   }
 
   .leaflet-popup-content strong { font-family: 'Fraunces', serif; color: var(--ink); }
 
   .leaflet-container a.leaflet-popup-close-button { color: var(--ink-muted); }
 
-  /* Popup con varias efemérides en el mismo punto */
-  .map-popup-head { display: block; margin-bottom: 6px; }
-  .map-popup-item { padding: 6px 0; }
-  .map-popup-item + .map-popup-item { border-top: 1px solid var(--border-col); }
-  .map-popup-title { display: block; margin-bottom: 5px; color: var(--ink); }
-  .map-popup-cat {
-    display: flex; align-items: center; gap: 5px; margin-bottom: 3px;
-    font-family: 'Fraunces', serif; font-size: 0.62rem; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--ink-muted);
+  /* Popup: cabecera + filas clicables (una efeméride por fila, compactas) */
+  .map-popup-head {
+    display: block; margin-bottom: 4px;
+    font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-muted);
   }
+  .map-popup-list { display: flex; flex-direction: column; }
+  .map-popup-row {
+    display: flex; align-items: baseline; gap: 7px; width: 100%;
+    background: none; border: 0; padding: 5px 4px; border-radius: 2px;
+    font-family: 'Spectral', serif; font-size: 0.9rem; line-height: 1.25;
+    text-align: left; color: var(--ink); cursor: pointer;
+  }
+  .map-popup-row + .map-popup-row { border-top: 1px solid rgba(0,0,0,0.08); }
+  .map-popup-row:hover { background: rgba(100,70,30,0.09); }
+  .map-popup-title { color: var(--ink); flex: 1; }
+  .map-popup-go {
+    flex: 0 0 auto; align-self: center; color: var(--red-wax);
+    font-family: 'Fraunces', serif; font-size: 1.05rem; line-height: 1;
+    opacity: 0.55; transition: opacity 0.12s, transform 0.12s;
+  }
+  .map-popup-row:hover .map-popup-go { opacity: 1; transform: translateX(2px); }
   .map-popup-cat-dot {
-    width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+    width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; align-self: center;
     border: 1px solid rgba(0, 0, 0, 0.25);
   }
 
@@ -1410,30 +1409,23 @@
     return hollowIcon;
   }
 
-  // Etiqueta de categoría/expedición (punto de color + nombre) para situar cada
-  // efeméride; así, cuando coinciden varias en un punto, se ve a qué pertenecen.
-  function catChip(category, color) {
-    if (!category) return '';
-    return `<span class="map-popup-cat">` +
-      `<span class="map-popup-cat-dot" style="background:${escapeHtml(color || 'var(--ink-muted)')}"></span>` +
-      `${escapeHtml(category)}</span>`;
-  }
-
-  // Bloque de una efeméride en el popup: categoría + título + botón "Leer".
-  function entryBlock(en) {
-    return catChip(en.category, en.color) +
-      `<span class="map-popup-title">${escapeHtml(en.title)}</span>` +
-      `<button class="map-popup-btn" data-date="${escapeHtml(en.date)}">Leer</button>`;
+  // Fila clicable de una efeméride en el popup: punto de color (categoría) +
+  // título, todo en una línea compacta (se abre al pulsar; sin botón aparte).
+  function entryRow(en) {
+    const dot = `<span class="map-popup-cat-dot" style="background:${escapeHtml(en.color || 'var(--ink-muted)')}"></span>`;
+    return `<button class="map-popup-row" data-date="${escapeHtml(en.date)}" title="Leer: ${escapeHtml(en.title)}">` +
+      dot + `<span class="map-popup-title">${escapeHtml(en.title)}</span>` +
+      `<span class="map-popup-go" aria-hidden="true">›</span></button>`;
   }
 
   // Popup de un único punto.
-  function pointPopup(en) { return entryBlock(en); }
+  function pointPopup(en) { return entryRow(en); }
 
-  // Popup para un punto donde coinciden varias efemérides: las lista todas, cada
-  // una con su categoría y botón, para que ninguna quede tapada e indistinguible.
+  // Popup para un punto donde coinciden varias efemérides: las lista compactas
+  // (una fila por efeméride), para que ninguna quede tapada e indistinguible.
   function multiPointPopup(entries) {
     return `<strong class="map-popup-head">${entries.length} efemérides aquí</strong>` +
-      entries.map(en => `<div class="map-popup-item">${entryBlock(en)}</div>`).join('');
+      `<div class="map-popup-list">${entries.map(entryRow).join('')}</div>`;
   }
 
   // Muestra el mini-mapa con el lugar de la crónica y, si pertenece a una ruta,
@@ -1644,18 +1636,18 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18, attribution: '&copy; OpenStreetMap'
       }).addTo(exploreMap);
-      // Al pulsar "Leer" abrimos esa efeméride. El popup puede listar varias
-      // (cuando coinciden en el mismo punto), así que cableamos todos los botones.
+      // Al pulsar una fila abrimos esa efeméride. El popup puede listar varias
+      // (cuando coinciden en el mismo punto), así que cableamos todas las filas.
       exploreMap.on('popupopen', (e) => {
-        e.popup.getElement().querySelectorAll('.map-popup-btn').forEach(btn => {
-          btn.onclick = () => { closeMap(); openByDate(btn.dataset.date); };
+        e.popup.getElement().querySelectorAll('.map-popup-row').forEach(row => {
+          row.onclick = () => { closeMap(); openByDate(row.dataset.date); };
         });
-        // Muestra la ruta del pin pulsado (si pertenece a una).
+        // Muestra la ruta del pin pulsado (si pertenece a una). La ruta se
+        // mantiene aunque cierres el popup; se oculta solo desde la leyenda o al
+        // abrir otro pin (no al clicar en zona vacía del mapa, que molestaba).
         const src = e.popup._source;
         showRoute(src && src.options.routeId);
       });
-      // Al cerrar el popup, se oculta la ruta.
-      exploreMap.on('popupclose', () => showRoute(null));
     }
     refreshMap(exploreMap);
     if (!mapPointsLoaded) await loadMapPoints();
@@ -1687,7 +1679,7 @@
   function closeMap() {
     document.getElementById('mapModal').hidden = true;
     document.body.style.overflow = '';
-    if (exploreMap) exploreMap.closePopup();   // dispara popupclose → oculta la ruta
+    if (exploreMap) { exploreMap.closePopup(); showRoute(null); }   // limpia la ruta al salir
   }
 
   // Dibuja la ruta indicada (solo una a la vez); con rid nulo, la oculta.
