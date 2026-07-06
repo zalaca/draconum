@@ -2109,10 +2109,13 @@
     return -1;
   }
 
-  // Tras navegar por acción del usuario, devolvemos el foco a la tarjeta
-  // para que el teclado no se pierda al destruirse el botón pulsado.
+  // Tras navegar por acción del usuario: devolvemos el foco a la tarjeta (para
+  // no perder el teclado al destruirse el botón pulsado) y llevamos el inicio
+  // del texto arriba (en móvil evita tener que subir el scroll tras pulsar
+  // Siguiente/Anterior/aleatoria).
   function focusContent() {
     document.getElementById('content').focus({ preventScroll: true });
+    document.getElementById('card').scrollIntoView({ block: 'start' });
   }
 
   // Avanza/retrocede una efeméride. Al cruzar el borde de una categoría salta a
