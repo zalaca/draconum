@@ -1112,7 +1112,6 @@
   let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
   let catInfo = {};      // categoría (= routes.name) -> { id, color, description }
   let pointsByRoute = {}; // route_id -> puntos de ruta (ordenados por seq)
-  let catRoute = {};      // categoría -> { id, color } de su ruta (por enlace real)
   let catById = {};       // category_id -> { id, name, display_order } (tabla categories)
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
@@ -1144,7 +1143,7 @@
       // de las categorías, que define categories.display_order).
       const [res, routes, rpts, catsRes] = await Promise.all([
         apiFetch(`select=${COLS}&active=eq.true&order=display_order.asc,id.asc`, false),
-        apiFetch('select=id,name,color,description', false, 'routes')
+        apiFetch('select=id,name,color,description,category_id', false, 'routes')
           .then(r => r.json()).catch(() => []),
         apiFetch('select=route_id,seq,lat,lng,chronicle_id&order=route_id.asc,seq.asc', false, 'route_points')
           .then(r => r.json()).catch(() => []),
@@ -1165,27 +1164,17 @@
       catsRes.forEach(c => { catById[c.id] = c; });
       asc.forEach(c => { c.category = (catById[c.category_id] || {}).name || ''; });
 
+      // Info de categoría (id de ruta, color, descripción), indexada por NOMBRE
+      // de categoría vía routes.category_id (enlace directo ruta↔categoría). Así
+      // todo —timeline, pines, mapa, descripción— la encuentra aunque el nombre
+      // de la ruta no coincida con el de la categoría (p. ej. "El Titanic").
       catInfo = {};
-      routes.forEach(r => { catInfo[r.name] = { id: r.id, color: r.color, description: r.description }; });
+      routes.forEach(r => {
+        const catName = (catById[r.category_id] || {}).name;
+        if (catName) catInfo[catName] = { id: r.id, color: r.color, description: r.description };
+      });
       pointsByRoute = {};
       rpts.forEach(p => { (pointsByRoute[p.route_id] = pointsByRoute[p.route_id] || []).push(p); });
-
-      // Enlace categoría → ruta por los datos reales (route_point → crónica →
-      // categoría). El nombre de la ruta no siempre coincide con el de la
-      // categoría (p. ej. ruta "El Titanic" en "El hundimiento del Titanic").
-      catRoute = {};
-      const chrCat = {};
-      asc.forEach(c => { chrCat[c.id] = c.category; });
-      const routeById = {};
-      routes.forEach(r => { routeById[r.id] = r; });
-      rpts.forEach(p => {
-        const cat = chrCat[p.chronicle_id], r = routeById[p.route_id];
-        if (cat && r && !catRoute[cat]) catRoute[cat] = { id: r.id, color: r.color, description: r.description };
-      });
-      // Exponemos la ruta también por categoría en catInfo (color, descripción,
-      // id), para que todo —timeline, pines, descripción— la encuentre aunque el
-      // nombre de la ruta no coincida con el de la categoría.
-      Object.keys(catRoute).forEach(cat => { if (!catInfo[cat]) catInfo[cat] = catRoute[cat]; });
 
       // Agrupamos por categoría (orden interno = display_order del fetch). El
       // orden de las categorías lo define categories.display_order de la tabla.
@@ -1439,28 +1428,31 @@
     if (atlasActive()) { renderCategoryMap(c, box, empty); return; }
     if (empty) empty.hidden = true;
 
-    // Móvil/tablet: mini-mapa del lugar + tramo recorrido "hasta aquí".
-    const route = catRoute[c.category] || catInfo[c.category];
-    const pts = route && route.id != null ? pointsByRoute[route.id] : null;
+    // Móvil/tablet: mini-mapa del lugar. Si la categoría tiene ruta, la mostramos:
+    // el tramo recorrido "hasta aquí" cuando la efeméride es un punto de la
+    // travesía, o la ruta completa si no lo es (para verla igualmente).
+    const route = catInfo[c.category];
+    const pts = route && route.id != null
+      ? (pointsByRoute[route.id] || []).filter(p => p.lat != null && p.lng != null) : null;
     let soFar = null, here = null;   // soFar = array de tramos normalizados
-    if (pts) {
+    if (pts && pts.length) {
       const cp = pts.find(p => p.chronicle_id === c.id);
-      if (cp) {
-        here = [cp.lat, normLng(cp.lng)];
-        const raw = pts.filter(p => p.seq <= cp.seq && p.lat != null && p.lng != null).map(p => [p.lat, p.lng]);
-        if (raw.length > 1) soFar = splitAtAntimeridian(raw);
-      }
+      if (cp) here = [cp.lat, normLng(cp.lng)];
+      const raw = cp
+        ? pts.filter(p => p.seq <= cp.seq).map(p => [p.lat, p.lng])   // tramo hasta aquí
+        : pts.map(p => [p.lat, p.lng]);                               // ruta completa
+      if (raw.length > 1) soFar = splitAtAntimeridian(raw);
     }
     if (!here && c.lat != null && c.lng != null) here = [c.lat, normLng(c.lng)];
 
-    if (!here) { box.hidden = true; return; }   // sin ubicación ni tramo
+    if (!here && !soFar) { box.hidden = true; return; }   // sin ubicación ni ruta
     box.hidden = false;
 
     ensureMiniMap(box);
     miniMap.scrollWheelZoom.disable();
     if (catLayer) { miniMap.removeLayer(catLayer); catLayer = null; }
 
-    // Tramo recorrido (normalizado, partido y replicado en las copias del mundo)
+    // Ruta (normalizada, partida y replicada en las copias del mundo)
     if (miniRoute) { miniMap.removeLayer(miniRoute); miniRoute = null; }
     if (soFar) {
       const color = (route && route.color) || '#7c332e';
@@ -1469,14 +1461,19 @@
       miniRoute = L.polyline(multi, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(miniMap);
     }
 
-    // Marcador "aquí"
-    if (miniMarker) miniMarker.setLatLng(here);
-    else miniMarker = L.marker(here, { icon: sealIcon() }).addTo(miniMap);
-    if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
+    // Marcador "aquí" (si la efeméride tiene ubicación propia)
+    if (miniMarker) { miniMap.removeLayer(miniMarker); miniMarker = null; }
+    if (here) {
+      miniMarker = L.marker(here, { icon: sealIcon() }).addTo(miniMap);
+      if (c.place_name) miniMarker.bindPopup(escapeHtml(c.place_name));
+    }
 
-    // Encuadra al tramo recorrido (copia central), o centra en el punto si es único
-    if (soFar) miniMap.fitBounds(soFar.flat(), { padding: [20, 20] });
-    else miniMap.setView(here, 5);
+    // Encuadra a la ruta (+ el marcador), o centra en el punto si no hay ruta
+    if (soFar) {
+      const b = soFar.flat();
+      if (here) b.push(here);
+      miniMap.fitBounds(b, { padding: [20, 20] });
+    } else miniMap.setView(here, 5);
 
     refreshMap(miniMap);
   }
@@ -1485,7 +1482,7 @@
   // (si es expedición), con la efeméride actual resaltada. Sin coordenadas en
   // toda la serie → estado "sin mapa" (Hic sunt dracones).
   function renderCategoryMap(c, box, empty) {
-    const info = catRoute[c.category] || catInfo[c.category];
+    const info = catInfo[c.category];
     const color = (info && info.color) || '#7c332e';
     const items = (byCat[c.category] || []).filter(x => x.lat != null && x.lng != null);
     const routePts = (info && info.id != null && pointsByRoute[info.id])
