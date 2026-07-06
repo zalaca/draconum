@@ -1139,10 +1139,11 @@
     document.getElementById('content').innerHTML =
       '<div class="state-msg">Desplegando velas...</div>';
     try {
-      // Todo el archivo activo (ordenado por event_date, la clave de orden
-      // interna) + las rutas (para descripción y color de cada categoría).
+      // Todo el archivo activo, en el orden explícito que define display_order
+      // (lo controla el editor; correcto también para a.C.), con id de desempate.
+      // + las rutas (para descripción y color de cada categoría).
       const [res, routes, rpts] = await Promise.all([
-        apiFetch(`select=${COLS}&active=eq.true&order=event_date.asc`, false),
+        apiFetch(`select=${COLS}&active=eq.true&order=display_order.asc,id.asc`, false),
         apiFetch('select=id,name,color,description', false, 'routes')
           .then(r => r.json()).catch(() => []),
         apiFetch('select=route_id,seq,lat,lng,chronicle_id&order=route_id.asc,seq.asc', false, 'route_points')
