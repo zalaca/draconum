@@ -1103,17 +1103,18 @@
   const SUPABASE_ANON_KEY = "sb_publishable_fvf0-ABfk_SMiSwFbzU7Iw_zVA1_aLM";
   // ------------------------------------
 
-  const COLS = "id,event_date,date_label,title,body,source,category,lat,lng,place_name,historical_year";
+  const COLS = "id,event_date,date_label,title,body,source,category_id,lat,lng,place_name,historical_year";
   const FETCH_TIMEOUT = 10000;                           // ms antes de abortar
 
   let chronicles = [];   // todas las efemérides, agrupadas por categoría (lista plana)
   let idx = 0;
-  let categories = [];   // nombres de categoría, en orden de 1ª aparición (event_date)
-  let byCat = {};        // categoría -> array de sus efemérides (event_date asc)
+  let categories = [];   // nombres de categoría, en orden de categories.display_order
+  let byCat = {};        // categoría -> array de sus efemérides (display_order asc)
   let catStart = {};     // categoría -> índice de su primera efeméride en chronicles
   let catInfo = {};      // categoría (= routes.name) -> { id, color, description }
   let pointsByRoute = {}; // route_id -> puntos de ruta (ordenados por seq)
   let catRoute = {};      // categoría -> { id, color } de su ruta (por enlace real)
+  let catById = {};       // category_id -> { id, name, display_order } (tabla categories)
 
   // fetch a Supabase con timeout (evita que la página se quede colgada)
   async function apiFetch(query, withCount, table = 'chronicles') {
@@ -1139,14 +1140,16 @@
     document.getElementById('content').innerHTML =
       '<div class="state-msg">Desplegando velas...</div>';
     try {
-      // Todo el archivo activo, en el orden explícito que define display_order
-      // (lo controla el editor; correcto también para a.C.), con id de desempate.
-      // + las rutas (para descripción y color de cada categoría).
-      const [res, routes, rpts] = await Promise.all([
+      // Efemérides activas ordenadas por chronicles.display_order (orden dentro
+      // de cada categoría) + rutas + la tabla categories (nombre y orden canónico
+      // de las categorías, que define categories.display_order).
+      const [res, routes, rpts, catsRes] = await Promise.all([
         apiFetch(`select=${COLS}&active=eq.true&order=display_order.asc,id.asc`, false),
         apiFetch('select=id,name,color,description', false, 'routes')
           .then(r => r.json()).catch(() => []),
         apiFetch('select=route_id,seq,lat,lng,chronicle_id&order=route_id.asc,seq.asc', false, 'route_points')
+          .then(r => r.json()).catch(() => []),
+        apiFetch('select=id,name,display_order', false, 'categories')
           .then(r => r.json()).catch(() => [])
       ]);
       const asc = await res.json();
@@ -1155,6 +1158,13 @@
           '<div class="state-msg">No hay crónicas disponibles todavía.</div>';
         return;
       }
+
+      // Tabla de categorías normalizada. Resolvemos el nombre de cada crónica
+      // desde category_id (dejamos de usar el texto libre) para poder seguir
+      // agrupando por nombre en el resto del código.
+      catById = {};
+      catsRes.forEach(c => { catById[c.id] = c; });
+      asc.forEach(c => { c.category = (catById[c.category_id] || {}).name || ''; });
 
       catInfo = {};
       routes.forEach(r => { catInfo[r.name] = { id: r.id, color: r.color, description: r.description }; });
@@ -1174,19 +1184,19 @@
         if (cat && r && !catRoute[cat]) catRoute[cat] = { id: r.id, color: r.color, description: r.description };
       });
       // Exponemos la ruta también por categoría en catInfo (color, descripción,
-      // id), para que todo —índice, timeline, pines, descripción— la encuentre
-      // aunque el nombre de la ruta no coincida con el de la categoría.
+      // id), para que todo —timeline, pines, descripción— la encuentre aunque el
+      // nombre de la ruta no coincida con el de la categoría.
       Object.keys(catRoute).forEach(cat => { if (!catInfo[cat]) catInfo[cat] = catRoute[cat]; });
 
-      // Orden de categorías = 1ª aparición (es decir, su event_date más antiguo).
-      categories = [];
+      // Agrupamos por categoría (orden interno = display_order del fetch). El
+      // orden de las categorías lo define categories.display_order de la tabla.
       byCat = {};
       catStart = {};
-      const seen = new Set();
-      asc.forEach(c => {
-        if (!seen.has(c.category)) { seen.add(c.category); categories.push(c.category); }
-        (byCat[c.category] = byCat[c.category] || []).push(c);
-      });
+      asc.forEach(c => { (byCat[c.category] = byCat[c.category] || []).push(c); });
+      categories = catsRes.slice()
+        .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+        .map(c => c.name)
+        .filter(name => byCat[name] && byCat[name].length);
       // Lista plana: categorías en orden, cada una con sus efemérides en orden.
       chronicles = [];
       categories.forEach(cat => { catStart[cat] = chronicles.length; chronicles.push(...byCat[cat]); });
@@ -1998,7 +2008,7 @@
       //    enlazada viene embebida; la RLS oculta las aún no publicadas (futuras).
       const [routes, rpts] = await Promise.all([
         apiFetch('select=id,name,color', false, 'routes').then(r => r.json()),
-        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title,category,historical_year)&order=route_id.asc,seq.asc', false, 'route_points').then(r => r.json())
+        apiFetch('select=route_id,seq,lat,lng,chronicle:chronicles(event_date,title,category_id,historical_year)&order=route_id.asc,seq.asc', false, 'route_points').then(r => r.json())
       ]);
       const routeById = {};
       routes.forEach(r => { routeById[r.id] = r; });
@@ -2024,7 +2034,8 @@
         pts.forEach(p => {
           if (!p.chronicle) return;
           onLine.add(p.chronicle.event_date);
-          addSpot(p.lat, normLng(p.lng), p.chronicle.title, p.chronicle.event_date, rid, sealIcon(color), p.chronicle.category, color, p.chronicle.historical_year);
+          const chCat = (catById[p.chronicle.category_id] || {}).name;
+          addSpot(p.lat, normLng(p.lng), p.chronicle.title, p.chronicle.event_date, rid, sealIcon(color), chCat, color, p.chronicle.historical_year);
         });
       });
 
