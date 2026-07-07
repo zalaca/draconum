@@ -2460,12 +2460,20 @@
 
   function updateUrl() {
     const c = chronicles[idx];
-    if (c && c.id != null) history.replaceState(null, '', location.pathname + '?id=' + c.id);
+    // Normalizamos siempre a /?id=N (aunque se aterrice en /serie/…), para que la
+    // URL de una efeméride sea única y no quede un híbrido /serie/…?id=N.
+    if (c && c.id != null) history.replaceState(null, '', '/?id=' + c.id);
   }
 
-  // Resuelve el índice a partir de la URL: ?id= (preferente) o ?d=fecha/#fecha
+  // Resuelve el índice a partir de la URL: ruta /serie/<category_id>-<slug>
+  // (abre la 1ª crónica de esa serie), ?id= (preferente) o ?d=fecha/#fecha
   // (compatibilidad con enlaces antiguos). Devuelve -1 si no aplica.
   function deepLinkIdx() {
+    const serie = location.pathname.match(/^\/serie\/(\d+)/);
+    if (serie) {
+      const cid = Number(serie[1]);
+      return chronicles.findIndex(c => c.category_id === cid);
+    }
     const params = new URLSearchParams(location.search);
     const idParam = params.get('id');
     if (idParam) return chronicles.findIndex(c => String(c.id) === idParam);
@@ -2522,10 +2530,29 @@
     if (i >= 0) { idx = i; render(); focusContent(); }
   }
 
-  // Compartir: usa el diálogo nativo si existe; si no, copia el enlace.
+  // categories.name → slug (mismo criterio que functions/serie/[param].js), para
+  // construir la URL canónica de la serie en el cliente.
+  function slugify(s) {
+    return String(s ?? '')
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  // URL de la serie a la que pertenece la crónica: /serie/<category_id>-<slug>.
+  // Si por lo que sea no hay categoría, caemos al enlace de la efeméride.
+  function serieUrl(c) {
+    if (c && c.category_id != null && c.category)
+      return location.origin + '/serie/' + c.category_id + '-' + slugify(c.category);
+    return location.origin + '/?id=' + c.id;
+  }
+
+  // Compartir: comparte la SERIE (categoría) de la crónica actual. Usa el diálogo
+  // nativo si existe; si no, copia el enlace.
   async function share() {
     const c = chronicles[idx];
-    const url = location.origin + location.pathname + '?id=' + c.id;
+    const url = serieUrl(c);
     try {
       if (navigator.share) {
         // Solo el enlace: si añadimos `text`, muchas apps comparten el
