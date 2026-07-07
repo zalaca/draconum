@@ -1427,11 +1427,13 @@
       setupCategoryPicker();
       buildOnThisDay();
 
-      // Posición inicial: deep-link ?id= (o el antiguo ?d=fecha); si no, azar.
+      // Posición inicial: deep-link ?id= (o el antiguo ?d=fecha); si no, el
+      // "dato del día": categoría elegida de forma determinista por la fecha
+      // (misma para todos hoy, distinta mañana) en vez de aleatoria.
       const linkIdx = deepLinkIdx();
       idx = linkIdx >= 0
         ? linkIdx
-        : catStart[categories[Math.floor(Math.random() * categories.length)]];
+        : catStart[categories[dailyPick(categories.length)]];
       render();
     } catch (err) {
       const msg = err && err.name === 'AbortError'
@@ -1442,6 +1444,16 @@
         '<br><button class="nav-btn" style="margin-top:1rem" onclick="loadChronicles()">Reintentar</button></div>';
       console.error(err);
     }
+  }
+
+  // Índice determinista por fecha (el "dato del día"): el mismo valor durante
+  // todo el día natural, así todos —usuarios y buscadores— ven la misma serie
+  // hoy y cambia mañana. Reparte de forma estable sobre `n` elementos.
+  function dailyPick(n) {
+    if (n <= 0) return 0;
+    const d = new Date();
+    const dayNum = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+    return ((dayNum % n) + n) % n;
   }
 
   // "Un día como hoy": banner con las efemérides cuyo aniversario (mes-día real)
