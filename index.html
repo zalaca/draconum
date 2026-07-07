@@ -773,6 +773,16 @@
 
     .tld-meanwhile { list-style: none; display: flex; flex-direction: column; gap: 0.1rem; }
 
+    .tld-source {
+      margin-top: 1.6rem;
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      color: var(--border-col);
+    }
+    .tld-source .tld-aside-head { display: block; font-style: normal; margin-bottom: 0.3rem; }
+
     .tld-mw-item {
       display: flex;
       flex-direction: column;
@@ -2240,6 +2250,7 @@
             <span class="tld-mw-title">${escapeHtml(x.o.title)}</span>
           </button></li>`).join('')}
         </ul>` : ''}
+        ${c.source ? `<div class="tld-source"><span class="tld-aside-head">Fuente</span>${escapeHtml(c.source)}</div>` : ''}
       </aside>`;
     pane.innerHTML = `
       <div class="tld-main">
