@@ -576,9 +576,9 @@
 
   .tl-node {
     position: relative;
-    padding-left: 1.5rem;
-    border-left: 2px solid var(--border-col);
-    padding-bottom: 1.4rem;
+    padding-left: 1.9rem;
+    border-left: 3px solid var(--border-col);
+    padding-bottom: 1.6rem;
   }
 
   .tl-node:last-child { border-left-color: transparent; }
@@ -586,26 +586,30 @@
   .tl-node::before {
     content: '';
     position: absolute;
-    left: -8px;
+    left: -10px;
     top: 2px;
-    width: 13px;
-    height: 13px;
+    width: 17px;
+    height: 17px;
     border-radius: 50%;
     background: var(--accent, var(--gold));
-    border: 2px solid #2a1f0e;
+    border: 3px solid #2a1f0e;
+    box-shadow: 0 0 0 4px rgba(201, 176, 131, 0.16);
   }
 
   .tl-range {
     display: block;
     font-family: 'Fraunces', serif;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
+    font-size: 0.74rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
     color: var(--gold);
   }
 
   .tl-cat {
     font-family: 'Fraunces', serif;
-    font-size: 0.95rem;
+    font-weight: 600;
+    font-size: 1.1rem;
+    line-height: 1.25;
     color: var(--parchment);
   }
 
@@ -717,15 +721,15 @@
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(340px, 440px) 1fr;
+      grid-template-columns: minmax(420px, 40%) 1fr;
       padding: 0;
     }
 
     .tl-list {
       display: block;
       overflow-y: auto;
-      padding: 1.5rem clamp(1rem, 2vw, 2rem) 2.5rem;
-      border-right: 1px solid var(--border-col);
+      padding: 1.75rem clamp(1.25rem, 2.5vw, 2.5rem) 2.5rem;
+      border-right: 2px solid var(--border-col);
     }
 
     /* La entrada seleccionada en la lista se marca con su color de época. */
@@ -751,17 +755,6 @@
       border-top: 1px solid var(--border-col);
     }
 
-    .tld-desc {
-      font-family: 'Spectral', serif;
-      font-style: italic;
-      font-size: 0.92rem;
-      line-height: 1.6;
-      color: var(--border-col);
-      padding-left: 0.9rem;
-      border-left: 2px solid var(--accent, var(--gold));
-      margin-bottom: 1.6rem;
-    }
-
     .tld-aside-head {
       font-family: 'Fraunces', serif;
       font-size: 0.72rem;
@@ -771,10 +764,26 @@
       margin-bottom: 0.6rem;
     }
 
-    .tld-meanwhile { list-style: none; display: flex; flex-direction: column; gap: 0.1rem; }
+    /* Mini-mapa del lugar del suceso. */
+    .tld-map {
+      height: 260px;
+      border: 1px solid var(--border-col);
+      border-radius: 2px;
+      background: #2b1c15;
+    }
+    .tld-map[hidden] { display: none; }
+
+    .tld-noloc {
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 0.9rem;
+      color: var(--border-col);
+      opacity: 0.7;
+    }
+    .tld-noloc[hidden] { display: none; }
 
     .tld-source {
-      margin-top: 1.6rem;
+      margin-top: 1.4rem;
       font-family: 'Spectral', serif;
       font-style: italic;
       font-size: 0.82rem;
@@ -782,37 +791,6 @@
       color: var(--border-col);
     }
     .tld-source .tld-aside-head { display: block; font-style: normal; margin-bottom: 0.3rem; }
-
-    .tld-mw-item {
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-      width: 100%;
-      text-align: left;
-      background: none;
-      border: 0;
-      padding: 0.4rem 0.5rem;
-      border-radius: 2px;
-      cursor: pointer;
-      transition: background 0.12s;
-    }
-
-    .tld-mw-item:hover { background: rgba(255, 255, 255, 0.06); }
-    .tld-mw-item:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-
-    .tld-mw-year {
-      font-family: 'Fraunces', serif;
-      font-size: 0.7rem;
-      letter-spacing: 0.05em;
-      color: var(--gold);
-    }
-
-    .tld-mw-title {
-      font-family: 'Spectral', serif;
-      font-size: 0.9rem;
-      line-height: 1.35;
-      color: var(--parchment);
-    }
 
     /* En pantallas anchas el rail pasa a columna derecha (no debajo). */
     @media (min-width: 1320px) {
@@ -829,7 +807,6 @@
         border-left: 1px solid var(--border-col);
         padding-left: clamp(1.5rem, 2vw, 2.5rem);
       }
-      .tld-desc { border-left-width: 2px; }
     }
 
     .tld-cat {
@@ -915,7 +892,8 @@
   /* Aspecto pergamino: filtro por tesela (no sobre el panel, que provoca
      parpadeos/desapariciones al hacer pan/zoom). No afecta a pines/controles. */
   .minimap .leaflet-tile,
-  #exploreMap .leaflet-tile {
+  #exploreMap .leaflet-tile,
+  .tld-map .leaflet-tile {
     filter: sepia(0.6) saturate(0.85) contrast(0.95) brightness(1.02);
   }
 
@@ -2158,6 +2136,7 @@
   function closeTimeline() {
     document.getElementById('timelineModal').hidden = true;
     document.body.style.overflow = '';
+    if (tlMap) { tlMap.remove(); tlMap = null; tlMarker = null; tlRoute = null; }
   }
 
   // Timeline: un hito por categoría (orden cronológico) con sus efemérides
@@ -2235,21 +2214,12 @@
     const accent = (catInfo[c.category] && catInfo[c.category].color) || 'var(--gold)';
     pane.style.setProperty('--accent', accent);
     const place = c.place_name ? `<div class="tld-place">◈ ${escapeHtml(c.place_name)}</div>` : '';
-    const desc = catInfo[c.category] && catInfo[c.category].description;
-    // Rail derecho: contexto del mundo en años cercanos (reutiliza meanwhileItems)
-    // + descripción de la categoría. Llena el ancho con contenido, no con hueco.
-    const meanwhile = meanwhileItems(c);
+    // Rail derecho: mini-mapa del LUGAR del suceso (dónde pasó) — propio de la
+    // línea de tiempo, no repetido de la lista. Fallback a fuente si no hay mapa.
     const aside = `
       <aside class="tld-aside">
-        ${desc ? `<div class="tld-desc">${escapeHtml(desc)}</div>` : ''}
-        ${meanwhile.length ? `
-        <div class="tld-aside-head">Mientras tanto…</div>
-        <ul class="tld-meanwhile">
-          ${meanwhile.map(x => `<li><button class="tld-mw-item" data-idx="${x.i}">
-            <span class="tld-mw-year">${fmtYear(x.o.historical_year)}</span>
-            <span class="tld-mw-title">${escapeHtml(x.o.title)}</span>
-          </button></li>`).join('')}
-        </ul>` : ''}
+        <div class="tld-map" id="tlMap"></div>
+        <div class="tld-noloc" id="tlNoloc" hidden>Sin ubicación conocida</div>
         ${c.source ? `<div class="tld-source"><span class="tld-aside-head">Fuente</span>${escapeHtml(c.source)}</div>` : ''}
       </aside>`;
     pane.innerHTML = `
@@ -2265,6 +2235,60 @@
     document.querySelectorAll('#timeline .tl-entry.selected').forEach(el => el.classList.remove('selected'));
     const entry = document.querySelector(`#timeline .tl-entry[data-idx="${gi}"]`);
     if (entry) entry.classList.add('selected');
+    renderTlMap(c);
+  }
+
+  // Mini-mapa del rail (instancia propia, separada del miniMap de la lectura).
+  // El innerHTML del panel se rehace en cada clic, así que recreamos el mapa
+  // sobre el contenedor nuevo (destruyendo el anterior para no dejar fugas).
+  let tlMap, tlMarker, tlRoute;
+  function renderTlMap(c) {
+    if (tlMap) { tlMap.remove(); tlMap = null; tlMarker = null; tlRoute = null; }
+    const box = document.getElementById('tlMap');
+    const noloc = document.getElementById('tlNoloc');
+    if (!box || !window.L) { if (box) box.hidden = true; return; }
+
+    // Ubicación: punto de la travesía (con tramo recorrido) o coordenada propia.
+    const route = catInfo[c.category];
+    const pts = route && route.id != null
+      ? (pointsByRoute[route.id] || []).filter(p => p.lat != null && p.lng != null) : null;
+    let soFar = null, here = null;
+    if (pts && pts.length) {
+      const cp = pts.find(p => p.chronicle_id === c.id);
+      if (cp) here = [cp.lat, normLng(cp.lng)];
+      const raw = cp
+        ? pts.filter(p => p.seq <= cp.seq).map(p => [p.lat, p.lng])
+        : pts.map(p => [p.lat, p.lng]);
+      if (raw.length > 1) soFar = splitAtAntimeridian(raw);
+    }
+    if (!here && c.lat != null && c.lng != null) here = [c.lat, normLng(c.lng)];
+
+    if (!here && !soFar) { box.hidden = true; if (noloc) noloc.hidden = false; return; }
+    box.hidden = false; if (noloc) noloc.hidden = true;
+
+    tlMap = L.map(box, {
+      scrollWheelZoom: false, attributionControl: true, fadeAnimation: false,
+      worldCopyJump: true, minZoom: 2,
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: '&copy; OpenStreetMap'
+    }).addTo(tlMap);
+
+    const color = (route && route.color) || '#7c332e';
+    if (soFar) {
+      const multi = [];
+      soFar.forEach(seg => WORLD_COPIES.forEach(off => multi.push(seg.map(([la, ln]) => [la, ln + off]))));
+      tlRoute = L.polyline(multi, { color, weight: 2.5, opacity: 0.85, dashArray: '6 6' }).addTo(tlMap);
+    }
+    if (here) {
+      tlMarker = L.marker(here, { icon: sealIcon(route && route.color) }).addTo(tlMap);
+      if (c.place_name) tlMarker.bindPopup(escapeHtml(c.place_name));
+    }
+    if (soFar) {
+      const b = soFar.flat(); if (here) b.push(here);
+      tlMap.fitBounds(b, { padding: [20, 20] });
+    } else tlMap.setView(here, 5);
+    refreshMap(tlMap);
   }
 
   // ---- Buscador ----
@@ -2583,11 +2607,6 @@
       idx = Number(open.dataset.idx);
       render();
       focusContent();
-      return;
-    }
-    const mw = e.target.closest('.tld-mw-item');
-    if (mw) {                               // "Mientras tanto": previsualiza en la ficha
-      renderTlDetail(Number(mw.dataset.idx));
       return;
     }
     const el = e.target.closest('.tl-entry');
